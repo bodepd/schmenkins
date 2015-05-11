@@ -238,13 +238,13 @@ class SchmenkinsJob(object):
                        self.build_revision = parts[0]
                        break
 
-               if rev is None:
+               if self.build_revision is None:
                    log.error('Did not find revision for %s for job' % (ref, self.name))
                    continue
 
                if not self.state.last_seen_revision:
                    self.should_run = True
-               elif self.state.last_seen_revision != rev:
+               elif self.state.last_seen_revision != self.build_revision:
                    self.should_run = True
 
     def run(self, parameters=None):
@@ -257,14 +257,19 @@ class SchmenkinsJob(object):
                 git = scm['git']
                 remote_name = 'origin' # I believe this can be overriden somehow
 
-                if not os.path.isdir(os.path.join(self.workspace, '.git')):
-                    run_cmd(['git', 'init'], cwd=workspace, dry_run=self.schmenkins.dry_run)
+                if not os.path.isdir(os.path.join(self.workspace(), '.git')):
+                    run_cmd(['git', 'init'], cwd=self.workspace(), dry_run=self.schmenkins.dry_run)
+                    run_cmd(['git', 'remote', 'add', remote_name, git['url']],
+                            cwd=self.workspace(), dry_run=self.schmenkins.dry_run)
 
-                run_cmd(['git', 'remote', 'set-url', 'origin', git['url']],
-                         cwd=workspace, dry_run=self.schmenkins.dry_run)
+                run_cmd(['git', 'remote', 'set-url', remote_name, git['url']],
+                         cwd=self.workspace(), dry_run=self.schmenkins.dry_run)
+
+                run_cmd(['git', 'fetch', remote_name],
+                         cwd=self.workspace(), dry_run=self.schmenkins.dry_run)
 
                 rev = self.build_revision or '%s/%s' % (remote_name, git.get('branch', 'master'))
-                run_cmd(['git', 'reset', '--hard', rev], cwd=workspace, dry_run=self.schmenkins.dry_run)
+                run_cmd(['git', 'reset', '--hard', rev], cwd=self.workspace(), dry_run=self.schmenkins.dry_run)
 
     def build(self, build):
         builders = self._job_dict.get('builders', [])
