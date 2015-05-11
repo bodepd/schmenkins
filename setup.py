@@ -24,7 +24,7 @@ setup(
     url='http://schmenkins.net/',
     version='0.1',
     packages=find_packages(),
-    install_requires=['jenkins_jobs'],
+    install_requires=['jenkins-job-builder'],
     entry_points={'console_scripts': ['schmenkins=schmenkins:main']}
 )
 

@@ -20,21 +20,26 @@ import json
 import logging
 import os.path
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
 import time
 from croniter import croniter
+from glob import glob
 from fnmatch import fnmatch
 from pprint import pprint
 from jenkins_jobs.builder import Builder
 
-
 logging.basicConfig(level=logging.INFO)
 
-class State(object):
-    attrs = ['last_run', 'last_seen_revisions']
+itpl_regex = re.compile('\$({)?([a-z_][a-z0-9_]*)(?(1)})', re.VERBOSE | re.IGNORECASE)
 
+def itpl(s, params):
+    return itpl_regex.sub(lambda m:str(params.get(m.group(2), '')), s)
+
+
+class State(object):
     def __init__(self, **kwargs):
         for attr in self.attrs:
             setattr(self, attr, kwargs.get(attr, None))
@@ -58,6 +63,15 @@ class State(object):
         with open(path, 'w') as fp:
             json.dump(data, fp)
 
+class SchmenkinsState(State):
+    attrs = ['last_run']
+
+class JobState(State):
+    attrs = ['last_seen_revision',
+             'last_succesful_build',
+             'last_failed_build',
+             'next_build_number']
+
 def run_cmd(args, cwd=None, dry_run=False):
     if dry_run:
         logging.info('Would have run command: %r' % (args,))
@@ -68,6 +82,291 @@ def run_cmd(args, cwd=None, dry_run=False):
         stdout, stderr = proc.communicate()
         logging.debug('Command returned: %r' % (stdout,))
         return stdout
+
+def ensure_dir(func):
+    def wrapper(*args, **kwargs):
+        retval = func(*args, **kwargs)
+
+        if not os.path.isdir(retval):
+            os.makedirs(retval)
+
+        return retval
+
+    return wrapper
+
+class UnsupportedConfig(Exception):
+    pass
+
+class SchmenkinsBuild(object):
+    def __init__(self, job, build_revision=None, parameters=None):
+        if parameters is None:
+            parameters = {}
+        self._parameters = parameters
+        self.job = job
+        self.build_revision = build_revision
+
+    def get_next_build_number(self):
+        self.build_number = self.job.state.next_build_number or 1
+        self.job.state.next_build_number = self.build_number + 1
+        self.job.save_state()
+
+    def parameters(self):
+        retval = self._parameters.copy()
+        retval['BUILD_NUMBER'] = self.build_number
+        retval['JOB_NAME'] = self.job.name
+        return retval
+
+    @ensure_dir
+    def build_dir(self):
+        return os.path.join(self.job.build_records(), str(self.build_number))
+
+    @ensure_dir
+    def artifact_dir(self):
+        return os.path.join(self.build_dir(), 'artifacts')
+
+    def run(self):
+        self.get_next_build_number()
+        self.job.checkout(self)
+        self.job.build(self)
+        self.job.publish(self)
+
+
+class SchmenkinsJob(object):
+    def __init__(self, schmenkins, job_dict):
+        self.schmenkins = schmenkins
+        self._job_dict = job_dict
+
+        self.state = JobState()
+        self.load_state()
+
+        self.style = self._job_dict.get('project-style', 'freestyle')
+
+        if self.style != 'freestyle':
+            raise UnsupportedConfig('Unsupported job style:', style)
+
+        self.should_poll = False
+        self.should_run = False
+        self.build_revision = None
+
+
+    @property
+    def name(self):
+        return self._job_dict['name']
+
+    def load_state(self):
+        self.state.load(self.state_file())
+
+    def save_state(self):
+        self.state.save(self.state_file())
+
+    @ensure_dir
+    def job_dir(self):
+        return os.path.join(self.schmenkins.jobs_dir(), self.name)
+
+    def state_file(self):
+        return os.path.join(self.job_dir(), 'state.json')
+
+    @ensure_dir
+    def workspace(self):
+        return os.path.join(self.job_dir(), 'workspace')
+
+    @ensure_dir
+    def build_records(self):
+        return os.path.join(self.job_dir(), 'build_records')
+
+    def process_triggers(self):
+        for trigger in self._job_dict.get('triggers', []):
+            if 'pollscm' in trigger:
+                # This sucks
+                cron = trigger['pollscm'].replace('H/', '*/')
+                next_poll = croniter(cron, self.schmenkins.base_timestamp).get_next(datetime.datetime)
+                if next_poll < self.schmenkins.now:
+                    logging.debug('%s should have been polled %s. Polling now.' % (self.name, next_poll))
+                    self.should_poll = True
+
+            if 'timed' in trigger:
+                # This also sucks
+                cron = trigger['timed'].replace('H/', '*/')
+                next_poll = croniter(cron, self.schmenkins.base_timestamp).get_next(datetime.datetime)
+                if next_poll < self.schmenkins.now:
+                    logging.debug('%s should have run %s. Running now.' % (self.name, next_poll))
+                    self.should_run = True
+
+    def poll(self):
+        for scm in self._job_dict.get('scm', []):
+           if 'git' in scm:
+               git = scm['git']
+               url = git['url']
+               ref = 'refs/heads/%s' % (git.get('branch', 'master'),)
+
+               cmd = ['git', 'ls-remote', git['url']]
+               output = run_cmd(cmd)
+
+               for l in output.split('\n'):
+                   if not l:
+                       continue
+
+                   parts = re.split('\s', l)
+                   if parts[1] == ref:
+                       self.build_revision = parts[0]
+                       break
+
+               if rev is None:
+                   log.error('Did not find revision for %s for job' % (ref, self.name))
+                   continue
+
+               if not self.state.last_seen_revision:
+                   self.should_run = True
+               elif self.state.last_seen_revision != rev:
+                   self.should_run = True
+
+    def run(self, parameters=None):
+        build = SchmenkinsBuild(self, self.build_revision, parameters)
+        build.run()
+
+    def checkout(self, revision):
+        for scm in self._job_dict.get('scm', []):
+            if 'git' in scm:
+                git = scm['git']
+                remote_name = 'origin' # I believe this can be overriden somehow
+
+                if not os.path.isdir(os.path.join(self.workspace, '.git')):
+                    run_cmd(['git', 'init'], cwd=workspace, dry_run=self.schmenkins.dry_run)
+
+                run_cmd(['git', 'remote', 'set-url', 'origin', git['url']],
+                         cwd=workspace, dry_run=self.schmenkins.dry_run)
+
+                rev = self.build_revision or '%s/%s' % (remote_name, git.get('branch', 'master'))
+                run_cmd(['git', 'reset', '--hard', rev], cwd=workspace, dry_run=self.schmenkins.dry_run)
+
+    def build(self, build):
+        builders = self._job_dict.get('builders', [])
+        for builder in builders:
+            for builder_type in builder:
+                if builder_type == 'shell':
+                    with tempfile.NamedTemporaryFile(delete=False) as fp:
+                        try:
+                            os.chmod(fp.name, 0o0700)
+                            fp.write(builder[builder_type])
+                            fp.close()
+
+                            maybe_shebang = builder[builder_type].split('\n')[0]
+
+                            if maybe_shebang.startswith('#!'):
+                                cmd = maybe_shebang[2:].split(' ')
+                            else:
+                                cmd = [os.environ.get('SHELL', '/bin/sh'), '-ex']
+
+                            cmd += [fp.name]
+
+                            run_cmd(cmd, cwd=self.workspace(), dry_run=self.schmenkins.dry_run)
+                        finally:
+                            os.unlink(fp.name)
+                else:
+                    raise UnsupportedConfig('%s, %r' % (builder_type, builder[builder_type]))
+
+        self.state.last_seen_revision = build.build_revision
+        self.save_state()
+
+    def publish(self, build):
+        publishers = self._job_dict.get('publishers', [])
+        for publisher in publishers:
+            for publisher_type in publisher:
+                if publisher_type == 'archive':
+                    workspace = self.workspace()
+                    artifact_dir = build.artifact_dir()
+
+                    artifacts = publisher[publisher_type]['artifacts']
+                    oldpath = os.getcwd()
+
+                    os.chdir(workspace)
+
+                    files = []
+                    for artifact in artifacts.split(','):
+                        files += glob(artifact)
+
+                    os.chdir(oldpath)
+
+                    for f in files:
+                        shutil.copy(os.path.join(workspace, f), os.path.join(artifact_dir, f))
+                elif publisher_type == 'trigger-parameterized-builds':
+                    for trigger_build in publisher[publisher_type]:
+                        if trigger_build['project'] not in self.schmenkins.jobs:
+                            raise Exception('Unknown job %s' % (trigger_build['project'],))
+
+                        parameters = {}
+
+                        for l in trigger_build['predefined-parameters'].split('\n'):
+                             if '=' not in l:
+                                 continue
+                             k, v = l.split('=', 1)
+                             parameters[k] = itpl(v, build.parameters())
+
+                        print parameters
+                        trigger_job = SchmenkinsJob(self.schmenkins,
+                                                    self.schmenkins.jobs[trigger_build['project']])
+                        triggered_build = trigger_job.run(parameters=parameters)
+
+                else:
+                    raise UnsupportedConfig('%s, %r' % (publisher_type, publisher[publisher_type]))
+
+
+class Schmenkins(object):
+    def __init__(self, basedir, cfgfile, ignore_timestamp=False, dry_run=False):
+        self.basedir = basedir
+        self.cfgfile = cfgfile
+        self.ignore_timestamp = ignore_timestamp
+        self.dry_run = dry_run
+        self.state = SchmenkinsState()
+        self.load_state()
+        self.builder = self.get_builder()
+        self.builder.load_files(self.cfgfile)
+        self.builder.parser.expandYaml(None)
+
+        self.jobs = {job['name']: job for job in self.builder.parser.jobs}
+
+        if ignore_timestamp or self.state.last_run is None:
+            self.last_run = 0
+        else:
+            self.last_run = self.state.last_run
+
+        self.base_timestamp = datetime.datetime.fromtimestamp(self.last_run)
+        self.now = datetime.datetime.now()
+
+    def get_builder(self):
+        return Builder('fakeurl',
+                       'fakeuser',
+                       'fakepassword',
+                       plugins_list=[])
+
+    def ensure_basedir(self):
+        if not os.path.isdir(self.basedir):
+            os.makedirs(self.basedir)
+
+    def state_file(self):
+        self.ensure_basedir()
+        return os.path.join(self.basedir, 'state.json')
+
+    def load_state(self):
+        self.state.load(self.state_file())
+
+    def save_state(self):
+        self.state.save(self.state_file())
+
+    def jobs_dir(self):
+        return os.path.join(self.basedir, 'jobs')
+
+    def handle_job(self, job_dict):
+        job = SchmenkinsJob(self, job_dict)
+
+        job.process_triggers()
+
+        if job.should_poll and not job.should_run:
+            job.poll()
+
+        if job.should_run:
+            job.run()
+
 
 def main(argv=sys.argv[1:]):
     parser = argparse.ArgumentParser()
@@ -82,131 +381,17 @@ def main(argv=sys.argv[1:]):
 
     args = parser.parse_args()
 
-    statefile = os.path.join(args.basedir, 'state.json')
-    if not os.path.isdir(args.basedir):
-        os.mkdir(args.basedir)
+    schmenkins = Schmenkins(args.basedir, args.config, args.ignore_timestamp, args.dry_run)
 
-    state = State()
-
-    state.load(statefile)
-
-    builder = Builder('fakeurl',
-                      'fakeuser',
-                      'fakepassword',
-                      plugins_list=[])
-
-    builder.load_files(args.config)
-    builder.parser.expandYaml(None)
-
-    if args.ignore_timestamp or not state.last_run:
-        last_run = 0
-    else:
-        last_run = state.last_run
-
-    base = datetime.datetime.fromtimestamp(last_run)
-    now = datetime.datetime.now()
-
-    state.last_seen_revisions = state.last_seen_revisions or {}
-
-    for job in builder.parser.jobs:
-        if args.jobs and not any([fnmatch(job['name'], job_glob) for job_glob in args.jobs]):
-            logging.info('Skipping job: %s' % (job['name'],))
+    for job in schmenkins.jobs:
+        if args.jobs and not any([fnmatch(job, job_glob) for job_glob in args.jobs]):
+            logging.info('Skipping job: %s' % (job,))
             continue
 
-        logging.info('Handling job: %s' % (job['name'],))
+        schmenkins.handle_job(schmenkins.jobs[job])
 
-        job_dir = os.path.join(args.basedir, 'jobs', job['name'])
-
-        if not os.path.exists(job_dir):
-            os.makedirs(job_dir)
-
-        workspace = os.path.join(job_dir, 'workspace')
-
-        style = job.get('project-style', 'freestyle')
-
-        if style != 'freestyle':
-            print 'Unsupported job style:', style
-            continue
-
-        run = False
-        poll = False
-
-        for trigger in job.get('triggers', []):
-            if 'pollscm' in trigger:
-                # This sucks
-                cron = trigger['pollscm'].replace('H/', '*/')
-                next_poll = croniter(cron, base).get_next(datetime.datetime)
-                if next_poll < now:
-                    logging.debug('%s should have been polled %s. Polling now.' % (job['name'], next_poll))
-                    poll = True
-
-        if poll:
-            for scm in job.get('scm', []):
-               if 'git' in scm:
-                   git = scm['git']
-                   url = git['url']
-                   ref = 'refs/heads/%s' % (git.get('branch', 'master'),)
-
-                   cmd = ['git', 'ls-remote', git['url']]
-                   output = run_cmd(cmd)
-
-                   rev = None
-                   for l in output.split('\n'):
-                       if not l:
-                           continue
-
-                       parts = re.split('\s', l)
-                       if parts[1] == ref:
-                           rev = parts[0]
-                           break
-
-                   if rev is None:
-                       log.error('Did not find revision for %s for job' % (ref, job['name']))
-                       continue
-
-                   if job['name'] not in state.last_seen_revisions:
-                       run = True
-                   elif state.last_seen_revisions[job['name']] != rev:
-                       run = True
-
-        if run:
-            for scm in job.get('scm', []):
-                if 'git' in scm:
-                    git = scm['git']
-                    remote_name = 'origin' # I believe this can be overriden somehow
-
-                    if os.path.exists(workspace) and os.path.isdir(workspace):
-                        run_cmd(['git', 'remote', 'set-url', 'origin', git['url']],
-                                cwd=workspace, dry_run=args.dry_run)
-                    else:
-                        run_cmd(['git', 'clone', git['url'], workspace], dry_run=args.dry_run)
-
-                    run_cmd(['git', 'reset', '--hard', rev], cwd=workspace, dry_run=args.dry_run)
-
-
-            if not os.path.exists(workspace):
-                os.mkdir(workspace)
-
-            builders = job.get('builders', [])
-            for builder in builders:
-                for builder_type in builder:
-                    if builder_type == 'shell':
-                        with tempfile.NamedTemporaryFile(delete=False) as fp:
-                            try:
-                                os.chmod(fp.name, 0o0700)
-                                fp.write(builder[builder_type])
-                                fp.close()
-
-                                run_cmd(fp.name, cwd=workspace, dry_run=args.dry_run)
-                            finally:
-                                os.unlink(fp.name)
-                    else:
-                        print builder_type, builder[builder_type]
-            state.last_seen_revisions[job['name']] = rev
-
-
-    state.last_run = time.mktime(now.timetuple())
-    state.save(statefile)
+    schmenkins.state.last_run = time.mktime(schmenkins.now.timetuple())
+    schmenkins.save_state()
 
 if __name__ == '__main__':
     sys.exit(not main())
