@@ -24,7 +24,7 @@ setup(
     url='http://schmenkins.net/',
     version='0.1',
     packages=find_packages(),
-    install_requires=['formic==0.9beta8', 'jenkins-job-builder'],
+    install_requires=['croniter', 'formic==0.9beta8', 'jenkins-job-builder'],
     entry_points={'console_scripts': ['schmenkins=schmenkins:main']}
 )
 
