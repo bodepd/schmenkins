@@ -22,7 +22,7 @@ setup(
     author='Soren Hansen',
     author_email='soren@linux2go.dk',
     url='http://schmenkins.net/',
-    version='0.1',
+    version='0.2',
     packages=find_packages(),
     install_requires=['croniter', 'formic==0.9beta8', 'jenkins-job-builder'],
     entry_points={'console_scripts': ['schmenkins=schmenkins:main']}
