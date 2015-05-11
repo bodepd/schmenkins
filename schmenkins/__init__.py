@@ -16,6 +16,7 @@
 #
 import argparse
 import datetime
+import formic
 import json
 import logging
 import os.path
@@ -72,38 +73,54 @@ class JobState(State):
              'last_failed_build',
              'next_build_number']
 
-def run_cmd(args, cwd=None, dry_run=False):
+def run_cmd(args, cwd=None, dry_run=False, capture_stdout=False):
     if dry_run:
         logging.info('Would have run command: %r' % (args,))
         return ''
     else:
         logging.info('Running command: %r' % (args,))
-        proc = subprocess.Popen(args, stdout=subprocess.PIPE, cwd=cwd)
+
+        kwargs = {}
+        if capture_stdout:
+            kwargs['stdout'] = subprocess.PIPE
+
+        proc = subprocess.Popen(args, cwd=cwd, **kwargs)
         stdout, stderr = proc.communicate()
         logging.debug('Command returned: %r' % (stdout,))
+
+        if proc.returncode != 0:
+            raise SchmenkinsCommandFailed('%r failed with return code %d.' % (args, proc.returncode))
+
         return stdout
 
-def ensure_dir(func):
+def ensure_dir(path):
+    if not os.path.isdir(path):
+        os.makedirs(path)
+    return path
+
+def ensure_dir_wrapper(func):
     def wrapper(*args, **kwargs):
-        retval = func(*args, **kwargs)
-
-        if not os.path.isdir(retval):
-            os.makedirs(retval)
-
-        return retval
-
+        return ensure_dir(func(*args, **kwargs))
     return wrapper
 
 class UnsupportedConfig(Exception):
     pass
 
+class SchmenkinsCommandFailed(Exception):
+    pass
+
 class SchmenkinsBuild(object):
-    def __init__(self, job, build_revision=None, parameters=None):
+    def __init__(self, job, build_revision=None, parameters=None, build_number=None):
         if parameters is None:
             parameters = {}
         self._parameters = parameters
         self.job = job
         self.build_revision = build_revision
+        self.build_number = build_number
+        self.state = None
+
+    def __str__(self):
+        return 'Build %s of %s' % (self.build_number, self.job)
 
     def get_next_build_number(self):
         self.build_number = self.job.state.next_build_number or 1
@@ -116,19 +133,26 @@ class SchmenkinsBuild(object):
         retval['JOB_NAME'] = self.job.name
         return retval
 
-    @ensure_dir
+    @ensure_dir_wrapper
     def build_dir(self):
         return os.path.join(self.job.build_records(), str(self.build_number))
 
-    @ensure_dir
+    @ensure_dir_wrapper
     def artifact_dir(self):
         return os.path.join(self.build_dir(), 'artifacts')
 
     def run(self):
         self.get_next_build_number()
-        self.job.checkout(self)
-        self.job.build(self)
+        try:
+            self.job.checkout(self)
+            self.job.build(self)
+        except SchmenkinsCommandFailed, e:
+            self.state = 'FAILED'
+
         self.job.publish(self)
+
+        self.job.state.last_seen_revision = self.build_revision
+        self.job.save_state()
 
 
 class SchmenkinsJob(object):
@@ -148,6 +172,9 @@ class SchmenkinsJob(object):
         self.should_run = False
         self.build_revision = None
 
+    def __str__(self):
+        return self.name
+
 
     @property
     def name(self):
@@ -159,18 +186,18 @@ class SchmenkinsJob(object):
     def save_state(self):
         self.state.save(self.state_file())
 
-    @ensure_dir
+    @ensure_dir_wrapper
     def job_dir(self):
         return os.path.join(self.schmenkins.jobs_dir(), self.name)
 
     def state_file(self):
         return os.path.join(self.job_dir(), 'state.json')
 
-    @ensure_dir
+    @ensure_dir_wrapper
     def workspace(self):
         return os.path.join(self.job_dir(), 'workspace')
 
-    @ensure_dir
+    @ensure_dir_wrapper
     def build_records(self):
         return os.path.join(self.job_dir(), 'build_records')
 
@@ -200,7 +227,7 @@ class SchmenkinsJob(object):
                ref = 'refs/heads/%s' % (git.get('branch', 'master'),)
 
                cmd = ['git', 'ls-remote', git['url']]
-               output = run_cmd(cmd)
+               output = run_cmd(cmd, capture_stdout=True)
 
                for l in output.split('\n'):
                    if not l:
@@ -262,11 +289,37 @@ class SchmenkinsJob(object):
                             run_cmd(cmd, cwd=self.workspace(), dry_run=self.schmenkins.dry_run)
                         finally:
                             os.unlink(fp.name)
+                elif builder_type == 'copyartifacts':
+                    copyartifacts = builder[builder_type]
+                    source_job = SchmenkinsJob(self.schmenkins,
+                                               self.schmenkins.jobs[itpl(copyartifacts['project'],
+                                                                         build.parameters())])
+                    if copyartifacts['which-build'] == 'specific-build':
+                        source_build = SchmenkinsBuild(source_job,
+                                                       build_number=itpl(copyartifacts['build-number'],
+                                                                         build.parameters()))
+
+                    else:
+                        raise UnsupportedConfig(copyartifacts['which-build'])
+
+                    target_dir = self.workspace()
+
+                    if 'target' in copyartifacts:
+                        target_dir = os.path.join(target_dir, copyartifacts['target'])
+
+                    ensure_dir(target_dir)
+
+                    source_dir = source_build.artifact_dir()
+
+                    fileset = formic.FileSet(directory=source_dir,
+                                             include=copyartifacts['filter'])
+
+                    for f in fileset.qualified_files(absolute=False):
+                        shutil.copy(os.path.join(source_dir, f),
+                                    os.path.join(target_dir, f))
+
                 else:
                     raise UnsupportedConfig('%s, %r' % (builder_type, builder[builder_type]))
-
-        self.state.last_seen_revision = build.build_revision
-        self.save_state()
 
     def publish(self, build):
         publishers = self._job_dict.get('publishers', [])
@@ -291,8 +344,16 @@ class SchmenkinsJob(object):
                         shutil.copy(os.path.join(workspace, f), os.path.join(artifact_dir, f))
                 elif publisher_type == 'trigger-parameterized-builds':
                     for trigger_build in publisher[publisher_type]:
+
                         if trigger_build['project'] not in self.schmenkins.jobs:
                             raise Exception('Unknown job %s' % (trigger_build['project'],))
+
+                        if 'condition' in trigger_build:
+                            if trigger_build['condition'] == 'UNSTABLE_OR_BETTER':
+                                if self.state == 'FAILED':
+                                    continue
+                            else:
+                                raise UnsupportedConfig('%s' % (trigger_build['condition'],))
 
                         parameters = {}
 
@@ -302,11 +363,9 @@ class SchmenkinsJob(object):
                              k, v = l.split('=', 1)
                              parameters[k] = itpl(v, build.parameters())
 
-                        print parameters
                         trigger_job = SchmenkinsJob(self.schmenkins,
                                                     self.schmenkins.jobs[trigger_build['project']])
                         triggered_build = trigger_job.run(parameters=parameters)
-
                 else:
                     raise UnsupportedConfig('%s, %r' % (publisher_type, publisher[publisher_type]))
 
@@ -388,6 +447,7 @@ def main(argv=sys.argv[1:]):
             logging.info('Skipping job: %s' % (job,))
             continue
 
+        logging.info('Handling job: %s' % (job,))
         schmenkins.handle_job(schmenkins.jobs[job])
 
     schmenkins.state.last_run = time.mktime(schmenkins.now.timetuple())
