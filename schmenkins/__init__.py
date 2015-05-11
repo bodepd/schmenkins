@@ -420,15 +420,16 @@ class Schmenkins(object):
     def jobs_dir(self):
         return os.path.join(self.basedir, 'jobs')
 
-    def handle_job(self, job_dict):
+    def handle_job(self, job_dict, force_build=False):
         job = SchmenkinsJob(self, job_dict)
 
-        job.process_triggers()
+        if not force_build:
+            job.process_triggers()
 
-        if job.should_poll and not job.should_run:
+        if job.should_poll and not job.should_run and not force_build:
             job.poll()
 
-        if job.should_run:
+        if force_build or job.should_run:
             job.run()
 
 
@@ -439,6 +440,8 @@ def main(argv=sys.argv[1:]):
                         help="Don't actually do anything")
     parser.add_argument('--ignore-timestamp', action='store_true', default=False,
                         help="Ignore last timestamp")
+    parser.add_argument('--force-build', action='store_true', default=False,
+                        help="Always build specified jobs")
     parser.add_argument('basedir', help="Base directory")
     parser.add_argument('config', help="Config file")
     parser.add_argument('jobs', nargs='*', help="Only process this/these job(s)")
@@ -453,7 +456,7 @@ def main(argv=sys.argv[1:]):
             continue
 
         logging.info('Handling job: %s' % (job,))
-        schmenkins.handle_job(schmenkins.jobs[job])
+        schmenkins.handle_job(schmenkins.jobs[job], force_build=args.force_build)
 
     schmenkins.state.last_run = time.mktime(schmenkins.now.timetuple())
     schmenkins.save_state()
