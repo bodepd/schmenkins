@@ -20,18 +20,21 @@ Project types:
 
 Builders:
  * shell
+ * copyartifacts
 
 Reporters:
 None
 
 Publishers:
-None
+ * artifacts
+ * trigger-parameterized-builds
 
 SCM:
  * git
 
 Triggers:
  * Poll SCM
+ * Timed
 
 Wrappers:
 None
