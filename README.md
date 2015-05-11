@@ -6,8 +6,8 @@ I didn't want to convert all my configuration from jenkins-job-builder to someth
 
 Here's how to use Schmenkins:
 
-$ pip install schmenkins
-$ schmenkins statedir jenkins-jobs/everything.yaml
+    $ pip install schmenkins
+    $ schmenkins statedir jenkins-jobs/everything.yaml
 
 That's it, really.
 
