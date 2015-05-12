@@ -248,7 +248,7 @@ class SchmenkinsJob(object):
                ref = 'refs/heads/%s' % (git.get('branch', 'master'),)
 
                cmd = ['git', 'ls-remote', git['url']]
-               output = run_cmd(cmd, capture_stdout=True)
+               output = run_cmd(cmd)
 
                for l in output.split('\n'):
                    if not l:
