@@ -73,25 +73,36 @@ class JobState(State):
              'last_failed_build',
              'next_build_number']
 
-def run_cmd(args, cwd=None, dry_run=False, capture_stdout=False):
+def run_cmd(args, cwd=None, dry_run=False, stdout=None):
     if dry_run:
         logging.info('Would have run command: %r' % (args,))
         return ''
     else:
         logging.info('Running command: %r' % (args,))
 
-        kwargs = {}
-        if capture_stdout:
-            kwargs['stdout'] = subprocess.PIPE
+        proc = subprocess.Popen(args, cwd=cwd,
+                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
 
-        proc = subprocess.Popen(args, cwd=cwd, **kwargs)
-        stdout, stderr = proc.communicate()
-        logging.debug('Command returned: %r' % (stdout,))
+        buf = ''
+        while True:
+            l = proc.stdout.readline()
+            if l == '':
+                break
+
+            logging.info(l.rstrip('\n'))
+
+            if stdout:
+                stdout.write(l)
+                stdout.flush()
+            buf += l
+
+        proc.communicate()
+        logging.warning('Command returned: %r' % (buf,))
 
         if proc.returncode != 0:
             raise SchmenkinsCommandFailed('%r failed with return code %d.' % (args, proc.returncode))
 
-        return stdout
+        return buf
 
 def ensure_dir(path):
     if not os.path.isdir(path):
@@ -118,6 +129,7 @@ class SchmenkinsBuild(object):
         self.build_revision = build_revision
         self.build_number = build_number
         self.state = None
+        self.logfp = None
 
     def __str__(self):
         return 'Build %s of %s' % (self.build_number, self.job)
@@ -137,22 +149,31 @@ class SchmenkinsBuild(object):
     def build_dir(self):
         return os.path.join(self.job.build_records(), str(self.build_number))
 
+    def log_file(self):
+        return os.path.join(self.build_dir(), 'consoleLog.txt')
+
     @ensure_dir_wrapper
     def artifact_dir(self):
         return os.path.join(self.build_dir(), 'artifacts')
 
     def run(self):
         self.get_next_build_number()
+        logging.info('Assigned build number %d to job %s' % (self.build_number,
+                                                             self.job))
+        self.logfp = open(self.log_file(), 'a+')
         try:
-            self.job.checkout(self)
-            self.job.build(self)
-        except SchmenkinsCommandFailed, e:
-            self.state = 'FAILED'
+            try:
+                self.job.checkout(self)
+                self.job.build(self)
+            except SchmenkinsCommandFailed, e:
+                self.state = 'FAILED'
 
-        self.job.publish(self)
+            self.job.publish(self)
 
-        self.job.state.last_seen_revision = self.build_revision
-        self.job.save_state()
+            self.job.state.last_seen_revision = self.build_revision
+            self.job.save_state()
+        finally:
+            self.logfp.close()
 
 
 class SchmenkinsJob(object):
@@ -291,7 +312,8 @@ class SchmenkinsJob(object):
 
                             cmd += [fp.name]
 
-                            run_cmd(cmd, cwd=self.workspace(), dry_run=self.schmenkins.dry_run)
+                            run_cmd(cmd, cwd=self.workspace(), dry_run=self.schmenkins.dry_run,
+                                    stdout=build.logfp)
                         finally:
                             os.unlink(fp.name)
                 elif builder_type == 'copyartifacts':
@@ -423,12 +445,17 @@ class Schmenkins(object):
     def handle_job(self, job_dict, force_build=False):
         job = SchmenkinsJob(self, job_dict)
 
+        logging.info('Processing triggers for %s' % (job,))
         if not force_build:
             job.process_triggers()
 
+        logging.info('should_poll: %r, should_run: %r, force_build: %r' %
+                     (job.should_poll, job.should_run, force_build))
         if job.should_poll and not job.should_run and not force_build:
             job.poll()
 
+        logging.info('should_run: %r, force_build: %r' %
+                     (job.should_run, force_build))
         if force_build or job.should_run:
             job.run()
 
