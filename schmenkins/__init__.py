@@ -32,7 +32,7 @@ from fnmatch import fnmatch
 from pprint import pprint
 from jenkins_jobs.builder import Builder
 
-logging.basicConfig(level=logging.INFO)
+LOG = logging.getLogger(__name__)
 
 itpl_regex = re.compile('\$({)?([a-z_][a-z0-9_]*)(?(1)})', re.VERBOSE | re.IGNORECASE)
 
@@ -73,7 +73,7 @@ class JobState(State):
              'last_failed_build',
              'next_build_number']
 
-def run_cmd(args, cwd=None, dry_run=False, stdout=None):
+def run_cmd(args, cwd=None, dry_run=False, logger=None):
     if dry_run:
         logging.info('Would have run command: %r' % (args,))
         return ''
@@ -91,9 +91,8 @@ def run_cmd(args, cwd=None, dry_run=False, stdout=None):
 
             logging.info(l.rstrip('\n'))
 
-            if stdout:
-                stdout.write(l)
-                stdout.flush()
+            if logger:
+                logger.debug(l.rstrip('\n'))
             buf += l
 
         proc.communicate()
@@ -129,7 +128,7 @@ class SchmenkinsBuild(object):
         self.build_revision = build_revision
         self.build_number = build_number
         self.state = None
-        self.logfp = None
+        self.logger = None
 
     def __str__(self):
         return 'Build %s of %s' % (self.build_number, self.job)
@@ -156,24 +155,32 @@ class SchmenkinsBuild(object):
     def artifact_dir(self):
         return os.path.join(self.build_dir(), 'artifacts')
 
+    def setup_logging(self):
+        self.logger = logging.getLogger('%s-%d' % (self.job, self.build_number))
+        self.logger.setLevel(logging.DEBUG)
+
+        logfp = logging.FileHandler(self.log_file())
+        logfp.setLevel(logging.DEBUG)
+        formatter = logging.Formatter('%(asctime)s: %(message)s')
+
+        logfp.setFormatter(formatter)
+        self.logger.addHandler(logfp)
+
     def run(self):
         self.get_next_build_number()
         logging.info('Assigned build number %d to job %s' % (self.build_number,
                                                              self.job))
-        self.logfp = open(self.log_file(), 'a+')
+        self.setup_logging()
         try:
-            try:
-                self.job.checkout(self)
-                self.job.build(self)
-            except SchmenkinsCommandFailed, e:
-                self.state = 'FAILED'
+            self.job.checkout(self)
+            self.job.build(self)
+        except SchmenkinsCommandFailed, e:
+            self.state = 'FAILED'
 
-            self.job.publish(self)
+        self.job.publish(self)
 
-            self.job.state.last_seen_revision = self.build_revision
-            self.job.save_state()
-        finally:
-            self.logfp.close()
+        self.job.state.last_seen_revision = self.build_revision
+        self.job.save_state()
 
 
 class SchmenkinsJob(object):
@@ -313,7 +320,7 @@ class SchmenkinsJob(object):
                             cmd += [fp.name]
 
                             run_cmd(cmd, cwd=self.workspace(), dry_run=self.schmenkins.dry_run,
-                                    stdout=build.logfp)
+                                    logger=build.logger)
                         finally:
                             os.unlink(fp.name)
                 elif builder_type == 'copyartifacts':
