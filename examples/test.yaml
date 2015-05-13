@@ -1,0 +1,54 @@
+- job:
+    name: jenkins-jobs
+    scm:
+      - git:
+          url: https://github.com/overcastde/jenkins-jobs
+          branch: master
+
+    triggers:
+      - pollscm: "H/5 * * * *"
+
+- job:
+    name: vmstat
+
+    triggers:
+      - timed: "* * * * *"
+
+    builders:
+      - shell: vmstat 2 5
+
+- job:
+    name: producer
+
+    triggers:
+      - timed: "* * * * *"
+
+    builders:
+      - shell: "echo hello > somefile"
+
+    publishers:
+      - archive:
+          artifacts: somefile
+      - trigger-parameterized-builds:
+          - project: "consumer"
+            condition: UNSTABLE_OR_BETTER
+            predefined-parameters: |
+              triggering_job=${JOB_NAME}
+              triggering_build_number=${BUILD_NUMBER}
+
+
+- job:
+    name: consumer
+
+    builders:
+      - copyartifact:
+          project: ${triggering_job}
+          filter: "**"
+          target: incoming
+          which-build: specific-build
+          build-number: ${triggering_build_number}
+          optional: true
+          flatten: true
+
+      - shell: "cat incoming/somefile"
+

@@ -31,50 +31,36 @@ from glob import glob
 from fnmatch import fnmatch
 from pprint import pprint
 from jenkins_jobs.builder import Builder
+from schmenkins.state import State
 from schmenkins.utils import run_cmd, ensure_dir, ensure_dir_wrapper
 
 LOG = logging.getLogger(__name__)
 
-class State(object):
-    def __init__(self, **kwargs):
-        for attr in self.attrs:
-            setattr(self, attr, kwargs.get(attr, None))
-
-    def load(self, path):
-        try:
-            with open(path, 'r') as fp:
-                data = json.load(fp)
-        except IOError:
-            data = {}
-        self.from_dict(data)
-
-    def from_dict(self, data):
-        for attr in self.attrs:
-            if attr in data:
-                setattr(self, attr, data[attr])
-
-    def to_dict(self):
-        data = {}
-        for attr in self.attrs:
-            if hasattr(self, attr):
-                data[attr] = getattr(self, attr)
-        return data
-
-    def save(self, path):
-        with open(path, 'w') as fp:
-            json.dump(self.to_dict(), fp)
-
+BUILD_STATES = ['SUCCESS',
+                'FAILED',
+                'ABORTED',
+                'RUNNING',
+                'SCHEDULED']
 
 class SchmenkinsState(State):
-    attrs = ['last_run']
+    attrs = ['last_run',
+             'jobs']
 
 class JobState(State):
     attrs = ['last_seen_revision',
              'last_succesful_build',
              'last_failed_build',
              'next_build_number',
-             'last_build_number',
+             'last_build',
+             'running',
              'state']
+
+class BuildState(State):
+    attrs = ['state',
+             'start_time',
+             'end_time',
+             'revision',
+             'id']
 
 class SchmenkinsBuild(object):
     def __init__(self, job, build_revision=None, parameters=None, build_number=None):
@@ -84,16 +70,22 @@ class SchmenkinsBuild(object):
         self.job = job
         self.build_revision = build_revision
         self.build_number = build_number
-        self.state = None
+        self.state = BuildState()
+
+        if self.build_number:
+            self.state.path = self.state_file()
+
         self.logger = None
 
     def __str__(self):
         return 'Build %s of %s' % (self.build_number, self.job)
 
+    def state_file(self):
+        return os.path.join(self.build_dir(), 'state.json')
+
     def get_next_build_number(self):
         self.build_number = self.job.state.next_build_number or 1
         self.job.state.next_build_number = self.build_number + 1
-        self.job.save_state()
 
     def parameters(self):
         retval = self._parameters.copy()
@@ -127,22 +119,25 @@ class SchmenkinsBuild(object):
         self.get_next_build_number()
         logging.info('Assigned build number %d to job %s' % (self.build_number,
                                                              self.job))
+        self.state.id = self.build_number
+
+        # We're encoding in JSON. JS convention is microsends since the epoch
+        self.state.start_time = time.time() * 1000
+        self.state.path = self.state_file()
+        self.state.state = 'RUNNING'
+
         self.setup_logging()
         try:
             self.job.checkout(self)
             self.job.build(self)
-            self.job.state.state = 'SUCCESS'
+            self.state.state = 'SUCCESS'
         except exceptions.SchmenkinsCommandFailed, e:
-            self.job.state.state = 'FAILED'
+            self.state.state = 'FAILED'
 
+        self.state.end_time = time.time() * 1000
         self.job.publish(self)
 
         self.job.state.last_seen_revision = self.build_revision
-        if self.job.state.state == 'SUCCESS':
-            self.job.state.last_succesful_build = self.build_number
-        elif self.job.state.state == 'FAILED':
-            self.job.state.last_failed_build = self.build_number
-        self.job.save_state()
 
 
 class SchmenkinsJob(object):
@@ -150,8 +145,7 @@ class SchmenkinsJob(object):
         self.schmenkins = schmenkins
         self._job_dict = job_dict
 
-        self.state = JobState()
-        self.load_state()
+        self.state = JobState(path=self.state_file())
 
         self.type = self._job_dict.get('project-type', 'freestyle')
 
@@ -168,12 +162,6 @@ class SchmenkinsJob(object):
     @property
     def name(self):
         return self._job_dict['name']
-
-    def load_state(self):
-        self.state.load(self.state_file())
-
-    def save_state(self):
-        self.state.save(self.state_file())
 
     @ensure_dir_wrapper
     def job_dir(self):
@@ -211,7 +199,12 @@ class SchmenkinsJob(object):
 
     def run(self, parameters=None):
         build = SchmenkinsBuild(self, self.build_revision, parameters)
+
+        self.state.running = build.state
         build.run()
+        self.state.running = None
+
+        return build
 
     def checkout(self, revision):
         for scm in self._job_dict.get('scm', []):
@@ -250,11 +243,13 @@ class Schmenkins(object):
         self.cfgfile = cfgfile
         self.ignore_timestamp = ignore_timestamp
         self.dry_run = dry_run
-        self.state = SchmenkinsState()
-        self.load_state()
+        self.state = SchmenkinsState(path=self.state_file())
         self.builder = self.get_builder()
         self.builder.load_files(self.cfgfile)
         self.builder.parser.expandYaml(None)
+
+        if not hasattr(self.state, 'jobs') or self.state.jobs is None:
+            self.state.jobs = {}
 
         self.jobs = {job['name']: job for job in self.builder.parser.jobs}
 
@@ -276,17 +271,12 @@ class Schmenkins(object):
         ensure_dir(self.basedir)
         return os.path.join(self.basedir, 'state.json')
 
-    def load_state(self):
-        self.state.load(self.state_file())
-
-    def save_state(self):
-        self.state.save(self.state_file())
-
     def jobs_dir(self):
         return os.path.join(self.basedir, 'jobs')
 
     def handle_job(self, job_dict, force_build=False):
         job = SchmenkinsJob(self, job_dict)
+        self.state.jobs[job.name] = job.state
 
         logging.info('Processing triggers for %s' % (job,))
         if not force_build:
@@ -300,7 +290,12 @@ class Schmenkins(object):
         logging.info('should_run: %r, force_build: %r' %
                      (job.should_run, force_build))
         if force_build or job.should_run:
-            job.run()
+            build = job.run()
+            job.state.last_build = build.state
+            if build.state.state == 'SUCCESS':
+                job.state.last_succesful_build = build.state
+            elif build.state.state == 'FAILED':
+                job.state.last_succesful_build = build.state
 
 
 def main(argv=sys.argv[1:]):
@@ -329,7 +324,6 @@ def main(argv=sys.argv[1:]):
         schmenkins.handle_job(schmenkins.jobs[job], force_build=args.force_build)
 
     schmenkins.state.last_run = time.mktime(schmenkins.now.timetuple())
-    schmenkins.save_state()
 
 if __name__ == '__main__':
     sys.exit(not main())
