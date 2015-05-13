@@ -139,6 +139,12 @@ class SchmenkinsBuild(object):
 
         self.job.state.last_seen_revision = self.build_revision
 
+        self.job.state.last_build = self.state
+        if self.state.state == 'SUCCESS':
+            self.job.state.last_succesful_build = self.state
+        elif self.state.state == 'FAILED':
+            self.job.state.last_failed_build = self.state
+
 
 class SchmenkinsJob(object):
     def __init__(self, schmenkins, job_dict):
@@ -291,12 +297,6 @@ class Schmenkins(object):
                      (job.should_run, force_build))
         if force_build or job.should_run:
             build = job.run()
-            job.state.last_build = build.state
-            if build.state.state == 'SUCCESS':
-                job.state.last_succesful_build = build.state
-            elif build.state.state == 'FAILED':
-                job.state.last_succesful_build = build.state
-
 
 def main(argv=sys.argv[1:]):
     parser = argparse.ArgumentParser()
