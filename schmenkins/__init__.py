@@ -17,6 +17,7 @@
 import argparse
 import datetime
 import formic
+import importlib
 import json
 import logging
 import os.path
@@ -26,19 +27,13 @@ import subprocess
 import sys
 import tempfile
 import time
-from croniter import croniter
 from glob import glob
 from fnmatch import fnmatch
 from pprint import pprint
 from jenkins_jobs.builder import Builder
+from schmenkins.utils import run_cmd, ensure_dir, ensure_dir_wrapper
 
 LOG = logging.getLogger(__name__)
-
-itpl_regex = re.compile('\$({)?([a-z_][a-z0-9_]*)(?(1)})', re.VERBOSE | re.IGNORECASE)
-
-def itpl(s, params):
-    return itpl_regex.sub(lambda m:str(params.get(m.group(2), '')), s)
-
 
 class State(object):
     def __init__(self, **kwargs):
@@ -51,18 +46,24 @@ class State(object):
                 data = json.load(fp)
         except IOError:
             data = {}
+        self.from_dict(data)
+
+    def from_dict(self, data):
         for attr in self.attrs:
             if attr in data:
                 setattr(self, attr, data[attr])
 
-    def save(self, path):
+    def to_dict(self):
         data = {}
         for attr in self.attrs:
             if hasattr(self, attr):
                 data[attr] = getattr(self, attr)
+        return data
 
+    def save(self, path):
         with open(path, 'w') as fp:
-            json.dump(data, fp)
+            json.dump(self.to_dict(), fp)
+
 
 class SchmenkinsState(State):
     attrs = ['last_run']
@@ -71,53 +72,9 @@ class JobState(State):
     attrs = ['last_seen_revision',
              'last_succesful_build',
              'last_failed_build',
-             'next_build_number']
-
-def run_cmd(args, cwd=None, dry_run=False, logger=None):
-    if dry_run:
-        logging.info('Would have run command: %r' % (args,))
-        return ''
-    else:
-        logging.info('Running command: %r' % (args,))
-
-        proc = subprocess.Popen(args, cwd=cwd,
-                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-
-        buf = ''
-        while True:
-            l = proc.stdout.readline()
-            if l == '':
-                break
-
-            logging.info(l.rstrip('\n'))
-
-            if logger:
-                logger.debug(l.rstrip('\n'))
-            buf += l
-
-        proc.communicate()
-        logging.warning('Command returned: %r' % (buf,))
-
-        if proc.returncode != 0:
-            raise SchmenkinsCommandFailed('%r failed with return code %d.' % (args, proc.returncode))
-
-        return buf
-
-def ensure_dir(path):
-    if not os.path.isdir(path):
-        os.makedirs(path)
-    return path
-
-def ensure_dir_wrapper(func):
-    def wrapper(*args, **kwargs):
-        return ensure_dir(func(*args, **kwargs))
-    return wrapper
-
-class UnsupportedConfig(Exception):
-    pass
-
-class SchmenkinsCommandFailed(Exception):
-    pass
+             'next_build_number',
+             'last_build_number',
+             'state']
 
 class SchmenkinsBuild(object):
     def __init__(self, job, build_revision=None, parameters=None, build_number=None):
@@ -174,12 +131,17 @@ class SchmenkinsBuild(object):
         try:
             self.job.checkout(self)
             self.job.build(self)
-        except SchmenkinsCommandFailed, e:
-            self.state = 'FAILED'
+            self.job.state.state = 'SUCCESS'
+        except exceptions.SchmenkinsCommandFailed, e:
+            self.job.state.state = 'FAILED'
 
         self.job.publish(self)
 
         self.job.state.last_seen_revision = self.build_revision
+        if self.job.state.state == 'SUCCESS':
+            self.job.state.last_succesful_build = self.build_number
+        elif self.job.state.state == 'FAILED':
+            self.job.state.last_failed_build = self.build_number
         self.job.save_state()
 
 
@@ -191,10 +153,10 @@ class SchmenkinsJob(object):
         self.state = JobState()
         self.load_state()
 
-        self.style = self._job_dict.get('project-style', 'freestyle')
+        self.type = self._job_dict.get('project-type', 'freestyle')
 
-        if self.style != 'freestyle':
-            raise UnsupportedConfig('Unsupported job style:', style)
+        if self.type != 'freestyle':
+            raise exceptions.UnsupportedConfig('Unsupported job type:', self.type)
 
         self.should_poll = False
         self.should_run = False
@@ -202,7 +164,6 @@ class SchmenkinsJob(object):
 
     def __str__(self):
         return self.name
-
 
     @property
     def name(self):
@@ -231,49 +192,22 @@ class SchmenkinsJob(object):
 
     def process_triggers(self):
         for trigger in self._job_dict.get('triggers', []):
-            if 'pollscm' in trigger:
-                # This sucks
-                cron = trigger['pollscm'].replace('H/', '*/')
-                next_poll = croniter(cron, self.schmenkins.base_timestamp).get_next(datetime.datetime)
-                if next_poll < self.schmenkins.now:
-                    logging.debug('%s should have been polled %s. Polling now.' % (self.name, next_poll))
-                    self.should_poll = True
+            plugin_name = trigger.keys()[0]
+            try:
+                plugin = importlib.import_module('schmenkins.triggers.%s' % (plugin_name,))
+            except ImportError:
+                raise exceptions.UnsupportedConfig('Trigger Plugin: %s' % (plugin_name,))
+            plugin.run(self.schmenkins, self, trigger[plugin_name])
 
-            if 'timed' in trigger:
-                # This also sucks
-                cron = trigger['timed'].replace('H/', '*/')
-                next_poll = croniter(cron, self.schmenkins.base_timestamp).get_next(datetime.datetime)
-                if next_poll < self.schmenkins.now:
-                    logging.debug('%s should have run %s. Running now.' % (self.name, next_poll))
-                    self.should_run = True
 
     def poll(self):
         for scm in self._job_dict.get('scm', []):
-           if 'git' in scm:
-               git = scm['git']
-               url = git['url']
-               ref = 'refs/heads/%s' % (git.get('branch', 'master'),)
-
-               cmd = ['git', 'ls-remote', git['url']]
-               output = run_cmd(cmd)
-
-               for l in output.split('\n'):
-                   if not l:
-                       continue
-
-                   parts = re.split('\s', l)
-                   if parts[1] == ref:
-                       self.build_revision = parts[0]
-                       break
-
-               if self.build_revision is None:
-                   log.error('Did not find revision for %s for job' % (ref, self.name))
-                   continue
-
-               if not self.state.last_seen_revision:
-                   self.should_run = True
-               elif self.state.last_seen_revision != self.build_revision:
-                   self.should_run = True
+            plugin_name = scm.keys()[0]
+            try:
+                plugin = importlib.import_module('schmenkins.scm.%s' % (plugin_name,))
+            except ImportError:
+                raise exceptions.UnsupportedConfig('SCM Plugin: %s' % (plugin_name,))
+            plugin.poll(self.schmenkins, self, scm[plugin_name])
 
     def run(self, parameters=None):
         build = SchmenkinsBuild(self, self.build_revision, parameters)
@@ -281,127 +215,33 @@ class SchmenkinsJob(object):
 
     def checkout(self, revision):
         for scm in self._job_dict.get('scm', []):
-            if 'git' in scm:
-                git = scm['git']
-                remote_name = 'origin' # I believe this can be overriden somehow
-
-                if not os.path.isdir(os.path.join(self.workspace(), '.git')):
-                    run_cmd(['git', 'init'], cwd=self.workspace(), dry_run=self.schmenkins.dry_run)
-                    run_cmd(['git', 'remote', 'add', remote_name, git['url']],
-                            cwd=self.workspace(), dry_run=self.schmenkins.dry_run)
-
-                run_cmd(['git', 'remote', 'set-url', remote_name, git['url']],
-                         cwd=self.workspace(), dry_run=self.schmenkins.dry_run)
-
-                run_cmd(['git', 'fetch', remote_name],
-                         cwd=self.workspace(), dry_run=self.schmenkins.dry_run)
-
-                rev = self.build_revision or '%s/%s' % (remote_name, git.get('branch', 'master'))
-                run_cmd(['git', 'reset', '--hard', rev], cwd=self.workspace(), dry_run=self.schmenkins.dry_run)
+            plugin_name = scm.keys()[0]
+            try:
+                plugin = importlib.import_module('schmenkins.scm.%s' % (plugin_name,))
+            except ImportError:
+                raise exceptions.UnsupportedConfig('SCM Plugin: %s' % (plugin_name,))
+            plugin.checkout(self.schmenkins, self, scm[plugin_name])
 
     def build(self, build):
         builders = self._job_dict.get('builders', [])
         for builder in builders:
-            for builder_type in builder:
-                if builder_type == 'shell':
-                    with tempfile.NamedTemporaryFile(delete=False) as fp:
-                        try:
-                            os.chmod(fp.name, 0o0700)
-                            fp.write(builder[builder_type])
-                            fp.close()
+            plugin_name = builder.keys()[0]
+            try:
+                plugin = importlib.import_module('schmenkins.builders.%s' % (plugin_name,))
+            except ImportError:
+                raise exceptions.UnsupportedConfig('Builder Plugin: %s' % (plugin_name,))
+            plugin.run(self.schmenkins, self, builder[plugin_name], build)
 
-                            maybe_shebang = builder[builder_type].split('\n')[0]
-
-                            if maybe_shebang.startswith('#!'):
-                                cmd = maybe_shebang[2:].split(' ')
-                            else:
-                                cmd = [os.environ.get('SHELL', '/bin/sh'), '-ex']
-
-                            cmd += [fp.name]
-
-                            run_cmd(cmd, cwd=self.workspace(), dry_run=self.schmenkins.dry_run,
-                                    logger=build.logger)
-                        finally:
-                            os.unlink(fp.name)
-                elif builder_type == 'copyartifacts':
-                    copyartifacts = builder[builder_type]
-                    source_job = SchmenkinsJob(self.schmenkins,
-                                               self.schmenkins.jobs[itpl(copyartifacts['project'],
-                                                                         build.parameters())])
-                    if copyartifacts['which-build'] == 'specific-build':
-                        source_build = SchmenkinsBuild(source_job,
-                                                       build_number=itpl(copyartifacts['build-number'],
-                                                                         build.parameters()))
-
-                    else:
-                        raise UnsupportedConfig(copyartifacts['which-build'])
-
-                    target_dir = self.workspace()
-
-                    if 'target' in copyartifacts:
-                        target_dir = os.path.join(target_dir, copyartifacts['target'])
-
-                    ensure_dir(target_dir)
-
-                    source_dir = source_build.artifact_dir()
-
-                    fileset = formic.FileSet(directory=source_dir,
-                                             include=copyartifacts['filter'])
-
-                    for f in fileset.qualified_files(absolute=False):
-                        shutil.copy(os.path.join(source_dir, f),
-                                    os.path.join(target_dir, f))
-
-                else:
-                    raise UnsupportedConfig('%s, %r' % (builder_type, builder[builder_type]))
 
     def publish(self, build):
         publishers = self._job_dict.get('publishers', [])
         for publisher in publishers:
-            for publisher_type in publisher:
-                if publisher_type == 'archive':
-                    workspace = self.workspace()
-                    artifact_dir = build.artifact_dir()
-
-                    artifacts = publisher[publisher_type]['artifacts']
-                    oldpath = os.getcwd()
-
-                    os.chdir(workspace)
-
-                    files = []
-                    for artifact in artifacts.split(','):
-                        files += glob(artifact)
-
-                    os.chdir(oldpath)
-
-                    for f in files:
-                        shutil.copy(os.path.join(workspace, f), os.path.join(artifact_dir, f))
-                elif publisher_type == 'trigger-parameterized-builds':
-                    for trigger_build in publisher[publisher_type]:
-
-                        if trigger_build['project'] not in self.schmenkins.jobs:
-                            raise Exception('Unknown job %s' % (trigger_build['project'],))
-
-                        if 'condition' in trigger_build:
-                            if trigger_build['condition'] == 'UNSTABLE_OR_BETTER':
-                                if self.state == 'FAILED':
-                                    continue
-                            else:
-                                raise UnsupportedConfig('%s' % (trigger_build['condition'],))
-
-                        parameters = {}
-
-                        for l in trigger_build['predefined-parameters'].split('\n'):
-                             if '=' not in l:
-                                 continue
-                             k, v = l.split('=', 1)
-                             parameters[k] = itpl(v, build.parameters())
-
-                        trigger_job = SchmenkinsJob(self.schmenkins,
-                                                    self.schmenkins.jobs[trigger_build['project']])
-                        triggered_build = trigger_job.run(parameters=parameters)
-                else:
-                    raise UnsupportedConfig('%s, %r' % (publisher_type, publisher[publisher_type]))
+            plugin_name = publisher.keys()[0]
+            try:
+                plugin = importlib.import_module('schmenkins.publishers.%s' % (plugin_name,))
+            except ImportError:
+                raise exceptions.UnsupportedConfig('Publisher Plugin: %s' % (plugin_name,))
+            plugin.publish(self.schmenkins, self, publisher[plugin_name], build)
 
 
 class Schmenkins(object):
@@ -432,12 +272,8 @@ class Schmenkins(object):
                        'fakepassword',
                        plugins_list=[])
 
-    def ensure_basedir(self):
-        if not os.path.isdir(self.basedir):
-            os.makedirs(self.basedir)
-
     def state_file(self):
-        self.ensure_basedir()
+        ensure_dir(self.basedir)
         return os.path.join(self.basedir, 'state.json')
 
     def load_state(self):
