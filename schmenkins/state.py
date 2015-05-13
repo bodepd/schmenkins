@@ -22,7 +22,6 @@ class State(object):
             self.dict[attr] = value
         super(State, self).__setattr__(attr, value)
         if attr == 'path':
-            print 'path', value
             if value is not None:
                 self.load()
         else:
