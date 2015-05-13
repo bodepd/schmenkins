@@ -18,8 +18,9 @@
           <td>{{ job.state }}</td>
           <td><a ng-href="#/jobs/{{ job_name }}">.</a></td>
           <td><a ng-href="#/jobs/{{ job_name }}">{{ job_name }}</a></td>
-          <td>{{ job.last_succesful_build.time|date  }} - <a ng-href="#/jobs/{{ job_name }}/{{ job.last_succesful_build.id }}">#{{ job.last_succesful_build.id }}</a></td>
-          <td>{{ job.last_failed_build.time|date  }} - <a ng-href="#/jobs/{{ job_name }}/{{ job.last_failed_build.id }}">#{{ job.last_failed_build.id }}</a></td>
+          <td><span ng-if="job.last_succesful_build">{{ (now - job.last_succesful_build.end_time)|duration:"millisecond":"year" }} - <a ng-href="#/jobs/{{ job_name }}/{{ job.last_succesful_build.id }}">#{{ job.last_succesful_build.id }}</a></span><span ng-if="!job.last_succesful_build">N/A</span></td>
+          <td><span ng-if="job.last_failed_build">{{ (now - job.last_failed_build.end_time)|duration:"millisecond":"year" }} - <a ng-href="#/jobs/{{ job_name }}/{{ job.last_failed_build.id }}">#{{ job.last_failed_build.id }}</a></span><span ng-if="!job.last_failed_build">N/A</span></td>
+          <td>{{ (job.last_build.end_time - job.last_build.start_time)|duration:"millisecond":"year"  }}</td>
         </tr>
       </tbody>
     </table>

@@ -1,0 +1,19 @@
+<div>
+  <h1 class="page-header">Build #{{ build.id }} of {{ jobName }}</h1>
+  <div class="table-responsive" ng-controller="BuildDetailController">
+    <dl class="dl-horizontal">
+      <dt>ID</dt>
+      <dd>{{ build.id }}</dd>
+      <dt>Result</dt>
+      <dd>{{ build.state }}</dd>
+      <dt>Started</dt>
+      <dd>{{ build.start_time|date:"yyyy-MM-dd HH:mm:ss" }}</dd>
+      <dt>Finished</dt>
+      <dd>{{ build.end_time|date:"yyyy-MM-dd HH:mm:ss" }}</dd>
+      <dt>Duration</dt>
+      <dd>{{ (build.end_time - build.start_time)|duration:"millisecond":"year" }}</dd>
+    </dl>
+    <pre id="console">{{ consoleLog }}</pre>
+  </div>
+</div>
+

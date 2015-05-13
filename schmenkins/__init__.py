@@ -325,17 +325,6 @@ def main(argv=sys.argv[1:]):
 
     schmenkins.state.last_run = time.mktime(schmenkins.now.timetuple())
 
-    summary = {'jobs': {}}
-
-    for job_name in schmenkins.jobs:
-        summary['jobs'][job_name] = {}
-
-        job_dict = schmenkins.jobs[job_name]
-        job = SchmenkinsJob(schmenkins, job_dict)
-        summary['jobs'][job_name] = job.state.to_dict()
-
-    json.dump(summary, open('summary.json', 'w'))
-
 if __name__ == '__main__':
     sys.exit(not main())
 
