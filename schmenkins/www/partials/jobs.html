@@ -1,0 +1,27 @@
+<div>
+  <h1 class="page-header">Overview</h1>
+  <h2 class="sub-header">Job states</h2>
+  <div class="table-responsive" ng-controller="JobListController">
+    <table class="table table-striped">
+      <thead>
+        <tr>
+          <th>S</th>
+          <th>W</th>
+          <th>Name</th>
+          <th>Latest success</th>
+          <th>Latest failure</th>
+          <th>Latest duration</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr ng-repeat="(job_name, job) in summary.jobs">
+          <td>{{ job.state }}</td>
+          <td><a ng-href="#/jobs/{{ job_name }}">.</a></td>
+          <td><a ng-href="#/jobs/{{ job_name }}">{{ job_name }}</a></td>
+          <td>{{ job.last_succesful_build.time|date  }} - <a ng-href="#/jobs/{{ job_name }}/{{ job.last_succesful_build.id }}">#{{ job.last_succesful_build.id }}</a></td>
+          <td>{{ job.last_failed_build.time|date  }} - <a ng-href="#/jobs/{{ job_name }}/{{ job.last_failed_build.id }}">#{{ job.last_failed_build.id }}</a></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>

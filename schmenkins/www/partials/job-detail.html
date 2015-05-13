@@ -1,0 +1,27 @@
+<div>
+  <h1 class="page-header">Project {{ job.name }}</h1>
+  <h2 class="sub-header">History</h2>
+  <div class="table-responsive" ng-controller="JobListController">
+    <table class="table table-striped">
+      <thead>
+        <tr>
+          <th>Id</th>
+          <th>Build started</th>
+          <th>Duration</th>
+          <th>Result</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr ng-repeat="build in job.builds">
+          <td>{{ build.id }}</td>
+          <td>{{ build.start_time|date }}</td>
+          <td>{{ build.duration|date }}</td>
+          <td><a ng-href="#/jobs/{{ job_name }}">{{ job_name }}</a></td>
+          <td>{{ job.last_succesful_build.time|date  }} - <a ng-href="#/jobs/{{ job_name }}/{{ job.last_succesful_build.id }}">#{{ job.last_succesful_build.id }}</a></td>
+          <td>{{ job.last_failed_build.time|date  }} - <a ng-href="#/jobs/{{ job_name }}/{{ job.last_failed_build.id }}">#{{ job.last_failed_build.id }}</a></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
