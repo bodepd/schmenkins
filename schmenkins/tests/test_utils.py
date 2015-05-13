@@ -2,12 +2,13 @@ import mock
 import os
 import shutil
 import tempfile
-import unittest
 
 from schmenkins import exceptions
 from schmenkins import utils
+from schmenkins import tests
 
-class TestUtils(unittest.TestCase):
+
+class TestUtils(tests.SchmenkinsTest):
     def test_itpl(self):
         d = {'abc': 'def',
              'AbC': 'ghi'}

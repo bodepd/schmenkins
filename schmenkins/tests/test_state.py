@@ -2,9 +2,9 @@ import json
 import os.path
 import shutil
 import tempfile
-import unittest
 
-from schmenkins import State
+from schmenkins import tests
+from schmenkins.state import State
 
 class RootState(State):
     attrs = ['children',
@@ -18,7 +18,7 @@ class GrandChildState(State):
     attrs = ['health']
 
 
-class StateTests(unittest.TestCase):
+class StateTests(tests.SchmenkinsTest):
     def test_state(self):
         tmpdir = tempfile.mkdtemp()
         try:

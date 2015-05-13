@@ -5,15 +5,15 @@ import os
 import os.path
 import shutil
 import tempfile
-import unittest
 
 import schmenkins
 import schmenkins.exceptions
+from schmenkins import tests
 
 class SimpleTestState(schmenkins.State):
     attrs = ['justone']
 
-class TestState(unittest.TestCase):
+class TestState(tests.SchmenkinsTest):
     def test_init(self):
         state = SimpleTestState(justone='abc', somethingelse='cde')
         self.assertEquals(state.justone, 'abc')
@@ -21,14 +21,18 @@ class TestState(unittest.TestCase):
 
     def test_load(self):
         state = SimpleTestState()
-        state.load(os.path.join(os.path.dirname(__file__), 'extraneous_state.json'))
+        state.path = os.path.join(os.path.dirname(__file__), 'extraneous_state.json')
         self.assertEquals(state.justone, 'some value')
         self.assertRaises(AttributeError, getattr, state, 'invalid')
 
     def test_load_enoent(self):
-        state = SimpleTestState()
-        state.load(os.path.join(os.path.dirname(__file__), '/blah'))
-        self.assertEquals(state.justone, None)
+        tmpdir = tempfile.mkdtemp()
+        try:
+            state = SimpleTestState()
+            state.path = os.path.join(tmpdir, 'blah')
+            self.assertEquals(state.justone, None)
+        finally:
+            shutil.rmtree(tmpdir)
 
     def test_save(self):
         with tempfile.NamedTemporaryFile(delete=False) as fp:
@@ -36,22 +40,25 @@ class TestState(unittest.TestCase):
                 fp.close()
 
                 state = SimpleTestState()
+                state.path = fp.name
                 state.justone = 'abc'
                 state.somethingelse = 'def'
-                state.save(fp.name)
+                state.save()
                 self.assertEquals(json.load(open(fp.name, 'r')), {'justone': 'abc'})
             finally:
                 os.unlink(fp.name)
 
-class TestSchmenkins(unittest.TestCase):
+class TestSchmenkins(tests.SchmenkinsTest):
     def setUp(self):
         self.statedir = tempfile.mkdtemp()
         _fd, self.cfgfile = tempfile.mkstemp()
         os.close(_fd)
+        super(TestSchmenkins, self).setUp()
 
     def tearDown(self):
         shutil.rmtree(self.statedir)
         os.unlink(self.cfgfile)
+        super(TestSchmenkins, self).tearDown()
 
     def test_basic_properties(self):
         s = schmenkins.Schmenkins(self.statedir, self.cfgfile)
@@ -135,16 +142,18 @@ class TestSchmenkins(unittest.TestCase):
         job.poll.assert_called_with()
         job.run.assert_called_with()
 
-class TestSchmenkinsJob(unittest.TestCase):
+class TestSchmenkinsJob(tests.SchmenkinsTest):
     def setUp(self):
         self.statedir = tempfile.mkdtemp()
         _fd, self.cfgfile = tempfile.mkstemp()
         os.close(_fd)
         self.schmenkins = schmenkins.Schmenkins(self.statedir, self.cfgfile)
+        super(TestSchmenkinsJob, self).setUp()
 
     def tearDown(self):
         shutil.rmtree(self.statedir)
         os.unlink(self.cfgfile)
+        super(TestSchmenkinsJob, self).tearDown()
 
     def test_str(self):
         job = schmenkins.SchmenkinsJob(self.schmenkins, {'name': 'JobName'})
