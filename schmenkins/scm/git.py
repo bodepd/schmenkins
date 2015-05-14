@@ -1,5 +1,6 @@
 import os.path
 import re
+import shutil
 
 from schmenkins.utils import run_cmd
 
@@ -30,6 +31,9 @@ def poll(schmenkins, job, info):
 
 def checkout(schmenkins, job, info, revision):
     remote_name = 'origin' # I believe this can be overriden somehow
+
+    if info.get('wipe-workspace', True):
+        shutil.rmtree(job.workspace())
 
     if not os.path.isdir(os.path.join(job.workspace(), '.git')):
         run_cmd(['git', 'init'], cwd=job.workspace(), dry_run=schmenkins.dry_run)
