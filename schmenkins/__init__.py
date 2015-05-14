@@ -128,7 +128,7 @@ class SchmenkinsBuild(object):
 
         self.setup_logging()
         try:
-            self.job.checkout(self)
+            self.job.checkout(self.build_revision)
             self.job.build(self)
             self.state.state = 'SUCCESS'
         except exceptions.SchmenkinsCommandFailed, e:
@@ -219,7 +219,7 @@ class SchmenkinsJob(object):
                 plugin = importlib.import_module('schmenkins.scm.%s' % (plugin_name,))
             except ImportError:
                 raise exceptions.UnsupportedConfig('SCM Plugin: %s' % (plugin_name,))
-            plugin.checkout(self.schmenkins, self, scm[plugin_name])
+            plugin.checkout(self.schmenkins, self, scm[plugin_name], revision)
 
     def build(self, build):
         builders = self._job_dict.get('builders', [])
