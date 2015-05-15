@@ -13,7 +13,7 @@ def _publish(schmenkins, job, info, build):
 
     if 'condition' in info:
         if info['condition'] == 'UNSTABLE_OR_BETTER':
-            if job.state == 'FAILED':
+            if build.state.state == 'FAILED':
                 return
         else:
             raise UnsupportedConfig('%s' % (info['condition'],))

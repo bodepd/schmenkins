@@ -17,6 +17,17 @@
     builders:
       - shell: vmstat 2 5
 
+    publishers:
+      - trigger:
+          project: more_vmstat
+          threshold: SUCCESS
+
+- job:
+    name: more_vmstat
+
+    builders:
+      - shell: vmstat 2 5
+
 - job:
     name: producer
 
