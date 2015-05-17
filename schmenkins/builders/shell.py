@@ -20,7 +20,8 @@ def run(schmenkins, job, info, build):
             cmd += [fp.name]
 
             run_cmd(cmd, cwd=job.workspace(), dry_run=schmenkins.dry_run,
-                    logger=build.logger)
+                    logger=build.logger,
+                    additional_environment=build.parameters())
         finally:
             os.unlink(fp.name)
 

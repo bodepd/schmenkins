@@ -29,7 +29,7 @@ def poll(schmenkins, job, info):
     elif job.state.last_seen_revision != job.build_revision:
         job.should_run = True
 
-def checkout(schmenkins, job, info, revision):
+def checkout(schmenkins, job, info, build):
     remote_name = 'origin' # I believe this can be overriden somehow
 
     if info.get('wipe-workspace', True):
@@ -46,5 +46,7 @@ def checkout(schmenkins, job, info, revision):
     run_cmd(['git', 'fetch', remote_name],
              cwd=job.workspace(), dry_run=schmenkins.dry_run)
 
-    rev = job.build_revision or '%s/%s' % (remote_name, info.get('branch', 'master'))
+    rev = build.build_revision or '%s/%s' % (remote_name, info.get('branch', 'master'))
     run_cmd(['git', 'reset', '--hard', rev], cwd=job.workspace(), dry_run=schmenkins.dry_run)
+    build._parameters['GIT_COMMIT'] = run_cmd(['git', 'rev-parse', 'HEAD'],
+                                              cwd=job.workspace(), dry_run=schmenkins.dry_run)

@@ -8,6 +8,9 @@
     triggers:
       - pollscm: "H/5 * * * *"
 
+    builders:
+      - shell: env
+
 - job:
     name: vmstat
 

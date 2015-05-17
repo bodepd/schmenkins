@@ -128,7 +128,7 @@ class SchmenkinsBuild(object):
 
         self.setup_logging()
         try:
-            self.job.checkout(self.build_revision)
+            self.job.checkout(self)
             self.job.build(self)
             self.state.state = 'SUCCESS'
         except exceptions.SchmenkinsCommandFailed, e:

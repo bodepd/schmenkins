@@ -11,15 +11,23 @@ itpl_regex = re.compile('\$({)?([a-z_][a-z0-9_]*)(?(1)})', re.VERBOSE | re.IGNOR
 def itpl(s, params):
     return itpl_regex.sub(lambda m:str(params.get(m.group(2), '')), s)
 
-def run_cmd(args, cwd=None, dry_run=False, logger=None):
+def run_cmd(args, cwd=None, dry_run=False, logger=None,
+            additional_environment=None):
+
     if dry_run:
         logging.info('Would have run command: %r' % (args,))
         return ''
     else:
         logging.info('Running command: %r' % (args,))
 
+        environment = os.environ.copy()
+
+        if additional_environment:
+            environment.update({k:str(v) for k,v in additional_environment.iteritems()})
+
         proc = subprocess.Popen(args, cwd=cwd,
-                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                env=environment)
 
         buf = ''
         while True:
@@ -50,5 +58,3 @@ def ensure_dir_wrapper(func):
     def wrapper(*args, **kwargs):
         return ensure_dir(func(*args, **kwargs))
     return wrapper
-
-
