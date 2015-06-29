@@ -1,6 +1,6 @@
 var schmenkinsApp = angular.module('schmenkinsApp', ['ngRoute', 'filter.duration']); 
 
-var baseUrl = 'http://overcastcloud.com/schmenkins';
+var baseUrl = ''; // http://overcastcloud.com/schmenkins';
 
 schmenkinsApp.config(['$routeProvider',
   function($routeProvider) {
@@ -22,10 +22,24 @@ schmenkinsApp.config(['$routeProvider',
       });
   }]);
 
+function getSuccesHandler(scope, idx) {
+  return function (data) {
+    for (k in data) {
+      scope.builds[idx][k] = data[k];
+    }
+  }
+}
+
 schmenkinsApp.controller('JobListController', function($scope, $http) {
   $scope.now = Date.now();
-  $http.get(baseUrl + '/state.json?fresh=' + Date.now()).success(function (data) {
-    $scope.summary = data;
+  $scope.builds = [];
+  $http.get(baseUrl + '/state/recent_builds.json?fresh=' + Date.now()).success(function (data) {
+    $scope.builds = data;
+    for (idx in data) {
+      build = data[idx];
+      $http.get(baseUrl + '/state/jobs/' + build.job + '/build_records/' + build.id + '/state.json?fresh=' + Date.now())
+           .success(getSuccesHandler($scope, idx));
+    }
   });
 });
 

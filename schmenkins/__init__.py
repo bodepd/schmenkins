@@ -120,6 +120,7 @@ class SchmenkinsBuild(object):
         logging.info('Assigned build number %d to job %s' % (self.build_number,
                                                              self.job))
         self.state.id = self.build_number
+        self.job.schmenkins.add_recent_build(self)
 
         # We're encoding in JSON. JS convention is microsends since the epoch
         self.state.start_time = time.time() * 1000
@@ -266,6 +267,17 @@ class Schmenkins(object):
 
         self.base_timestamp = datetime.datetime.fromtimestamp(self.last_run)
         self.now = datetime.datetime.now()
+
+    def add_recent_build(self, build):
+        fpath = os.path.join(self.basedir, 'recent_builds.json')
+        try:
+            with open(fpath, 'r') as fp:
+                data = json.load(fp)
+        except IOError:
+            data = []
+        data.insert(0, {'job': build.job.name, 'id': build.build_number})
+        with open(fpath, 'w') as fp:
+            json.dump(data, fp)
 
     def get_builder(self):
         return Builder('fakeurl',

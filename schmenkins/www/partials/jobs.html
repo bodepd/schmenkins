@@ -1,28 +1,5 @@
 <div>
-  <h1 class="page-header">Overview</h1>
-  <h2 class="sub-header">Job states</h2>
-  <div class="table-responsive" ng-controller="JobListController">
-    <table class="table table-striped">
-      <thead>
-        <tr>
-          <th>S</th>
-          <th>W</th>
-          <th>Name</th>
-          <th>Latest success</th>
-          <th>Latest failure</th>
-          <th>Latest duration</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr ng-repeat="(job_name, job) in summary.jobs">
-          <td>{{ job.state }}</td>
-          <td><a ng-href="#/jobs/{{ job_name }}">.</a></td>
-          <td><a ng-href="#/jobs/{{ job_name }}">{{ job_name }}</a></td>
-          <td><span ng-if="job.last_succesful_build">{{ (now - job.last_succesful_build.end_time)|duration:"millisecond":"year" }} - <a ng-href="#/jobs/{{ job_name }}/{{ job.last_succesful_build.id }}">#{{ job.last_succesful_build.id }}</a></span><span ng-if="!job.last_succesful_build">N/A</span></td>
-          <td><span ng-if="job.last_failed_build">{{ (now - job.last_failed_build.end_time)|duration:"millisecond":"year" }} - <a ng-href="#/jobs/{{ job_name }}/{{ job.last_failed_build.id }}">#{{ job.last_failed_build.id }}</a></span><span ng-if="!job.last_failed_build">N/A</span></td>
-          <td>{{ (job.last_build.end_time - job.last_build.start_time)|duration:"millisecond":"year"  }}</td>
-        </tr>
-      </tbody>
-    </table>
-  </div>
+  <h1 class="page-header">Dashbaord</h1>
+  <h2 class="sub-header">Recent builds</h2>
+  <div ng-repeat="build in builds" ng-include="'partials/_job_row.html'"></div>
 </div>

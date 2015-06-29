@@ -1,0 +1,30 @@
+<div class='row build-list-item'>
+  <div class="col-md-1">
+    <a ng-href="#/jobs/{{ build.job }}/{{ build.id }}" title="View Build Detail">
+      <span ng-if="build.state === 'SUCCESS'" class="build-ok glyphicon glyphicon-ok"></span>
+      <span ng-if="build.state === 'FAILED'" class="build-failure glyphicon glyphicon-remove"></span>
+      <img ng-if="build.state === 'RUNNING'" src="images/spinner.gif"/>
+    </a>
+  </div>
+  <div class='col-md-11'>
+    <div class='row-fluid'>
+      <div class='col-md-6'>
+        {{ build.job }} <a ng-href="#/jobs/{{ build.job }}/{{ build.id }}">#{{ build.id }}</a>
+      </div>
+      <div class="col-md-6">
+        <div class="build-item-committer">
+          committer info
+        </div>
+      </div>
+    </div>
+    <div class='row-fluid'>
+      <div class='col-md-6'>
+        | {{ (now - build.end_time)|duration:"millisecond":"year" }} ago
+      </div>
+      <div class='col-md-6'>
+        <div class='build-item-duration'>
+          <strong>{{ (build.end_time - build.start_time)|duration:"millisecond":"year" }}</strong>
+      </div>
+    </div>
+  </div>
+</div>
