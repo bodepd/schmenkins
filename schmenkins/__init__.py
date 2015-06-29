@@ -268,6 +268,23 @@ class Schmenkins(object):
         self.base_timestamp = datetime.datetime.fromtimestamp(self.last_run)
         self.now = datetime.datetime.now()
 
+    def install_ui(self):
+        uidir = os.path.join(os.path.dirname(__file__), 'www')
+        self._sync_tree(uidir, self.basedir)
+
+    def _sync_tree(self, src, dst):
+        names = os.listdir(src)
+        if not os.path.isdir(dst):
+            os.makedirs(dst)
+        for name in names:
+            srcname = os.path.join(src, name)
+            dstname = os.path.join(dst, name)
+
+            if os.path.isdir(srcname):
+                self._sync_tree(srcname, dstname)
+            else:
+                shutil.copy2(srcname, dstname)
+
     def add_recent_build(self, build):
         fpath = os.path.join(self.basedir, 'recent_builds.json')
         try:
@@ -326,6 +343,8 @@ def main(argv=sys.argv[1:]):
     args = parser.parse_args()
 
     schmenkins = Schmenkins(args.basedir, args.config, args.ignore_timestamp, args.dry_run)
+
+    schmenkins.install_ui()
 
     for job in schmenkins.jobs:
         if args.jobs and not any([fnmatch(job, job_glob) for job_glob in args.jobs]):
