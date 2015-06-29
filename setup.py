@@ -25,6 +25,7 @@ setup(
     version='0.8',
     packages=find_packages(),
     install_requires=['croniter', 'formic==0.9beta8', 'jenkins-job-builder'],
-    entry_points={'console_scripts': ['schmenkins=schmenkins:main']}
+    entry_points={'console_scripts': ['schmenkins=schmenkins:main']},
+    include_package_data=True
 )
 
