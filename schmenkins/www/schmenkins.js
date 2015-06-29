@@ -33,11 +33,11 @@ function getSuccesHandler(scope, idx) {
 schmenkinsApp.controller('JobListController', function($scope, $http) {
   $scope.now = Date.now();
   $scope.builds = [];
-  $http.get(baseUrl + '/state/recent_builds.json?fresh=' + Date.now()).success(function (data) {
+  $http.get(baseUrl + '/recent_builds.json?fresh=' + Date.now()).success(function (data) {
     $scope.builds = data;
     for (idx in data) {
       build = data[idx];
-      $http.get(baseUrl + '/state/jobs/' + build.job + '/build_records/' + build.id + '/state.json?fresh=' + Date.now())
+      $http.get(baseUrl + '/jobs/' + build.job + '/build_records/' + build.id + '/state.json?fresh=' + Date.now())
            .success(getSuccesHandler($scope, idx));
     }
   });
@@ -46,25 +46,25 @@ schmenkinsApp.controller('JobListController', function($scope, $http) {
 schmenkinsApp.controller('JobDetailController', function($scope, $routeParams, $http) {
   $scope.jobName = $routeParams.jobName;
   $scope.builds = {};
-  $http.get(baseUrl + '/state/jobs/' + $routeParams.jobName + '/state.json').success(function (data) {
+  $http.get(baseUrl + '/jobs/' + $routeParams.jobName + '/state.json').success(function (data) {
     $scope.job = data;
     for (idx=$scope.job.last_build.id;idx>0;idx--) {
-      $http.get(baseUrl + '/state/jobs/' + $routeParams.jobName + '/build_records/' + idx + '/state.json').success(function (data) {
+      $http.get(baseUrl + '/jobs/' + $routeParams.jobName + '/build_records/' + idx + '/state.json').success(function (data) {
         $scope.builds[data.id] = data;
       });
     }
   });
-  $http.get(baseUrl + '/state/jobs/' + $routeParams.jobName + '/build_records/' + $routeParams.buildId + '/consoleLog.txt').success(function (data) {
+  $http.get(baseUrl + '/jobs/' + $routeParams.jobName + '/build_records/' + $routeParams.buildId + '/consoleLog.txt').success(function (data) {
     $scope.consoleLog = data;
   });
 });
 
 schmenkinsApp.controller('BuildDetailController', function($scope, $routeParams, $http) {
   $scope.jobName = $routeParams.jobName;
-  $http.get(baseUrl + '/state/jobs/' + $routeParams.jobName + '/build_records/' + $routeParams.buildId + '/state.json?fresh=' + Date.now()).success(function (data) {
+  $http.get(baseUrl + '/jobs/' + $routeParams.jobName + '/build_records/' + $routeParams.buildId + '/state.json?fresh=' + Date.now()).success(function (data) {
     $scope.build = data;
   });
-  $http.get(baseUrl + '/state/jobs/' + $routeParams.jobName + '/build_records/' + $routeParams.buildId + '/consoleLog.txt').success(function (data) {
+  $http.get(baseUrl + '/jobs/' + $routeParams.jobName + '/build_records/' + $routeParams.buildId + '/consoleLog.txt').success(function (data) {
     $scope.consoleLog = data;
   });
 });
