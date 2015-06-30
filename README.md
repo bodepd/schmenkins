@@ -1,5 +1,7 @@
 # Schmenkins
 
+![Travis status](https://travis-ci.org/Linux2Go/schmenkins.svg)
+
 Out of sheer frustration trying to automate deploying Jenkins, I wrote Schmenkins instead.
 
 I didn't want to convert all my configuration from jenkins-job-builder to something else, so those are just Schmenkins' native configuration.
