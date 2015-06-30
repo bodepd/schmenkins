@@ -16,6 +16,13 @@
 #
 from setuptools import setup, find_packages
 
+def load_requirements(fname):
+    with open('requirements.txt', 'r') as fp:
+        requirements = [x.strip() for x in fp]
+
+requirements = load_requirements('requirements.txt')
+test_requirements = load_requirements('test-requirements.txt')
+
 setup(
     name='schmenkins',
     description='Jenkins Schmenkins',
@@ -24,7 +31,8 @@ setup(
     url='http://schmenkins.net/',
     version='0.8',
     packages=find_packages(),
-    install_requires=['croniter', 'formic==0.9beta8', 'jenkins-job-builder'],
+    install_requires=requirements,
+    tests_require=test_requirements,
     entry_points={'console_scripts': ['schmenkins=schmenkins:main']},
     include_package_data=True
 )
