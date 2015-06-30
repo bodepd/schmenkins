@@ -1,8 +1,11 @@
+import logging
 import os.path
 import re
 import shutil
 
 from schmenkins.utils import run_cmd
+
+LOG = logging.getLogger(__name__)
 
 def poll(schmenkins, job, info):
     url = info['url']
@@ -21,7 +24,7 @@ def poll(schmenkins, job, info):
             break
 
     if job.build_revision is None:
-        log.error('Did not find revision for %s for job' % (ref, job.name))
+        LOG.error('Did not find revision for %s for job %s' % (ref, job.name))
         return
 
     if not job.state.last_seen_revision:
