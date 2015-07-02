@@ -33,6 +33,7 @@ Publishers:
 
 SCM:
  * git
+ * repo
 
 Triggers:
  * Poll SCM

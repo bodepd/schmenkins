@@ -1,0 +1,19 @@
+- job:
+    name: contrail
+    scm:
+      - repo:
+          manifest-url: https://github.com/JioCloud/contrail-vnc
+          manifest-file: noauth.xml
+          manifest-branch: R1.10
+
+    triggers:
+      - pollscm: "* * * * *"
+
+    properties:
+      - copyartifact:
+          projects: process-pkg
+
+    builders:
+      - shell: |
+          #!/bin/bash -xe
+          echo hello
