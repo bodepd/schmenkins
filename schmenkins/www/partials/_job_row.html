@@ -13,7 +13,13 @@
       </div>
       <div class="col-md-6">
         <div class="build-item-committer">
-          committer info
+          <span ng-if="build.commit_info">
+            <a ng-if="build.commit_info_url" ng-href="{{ build.commit_info_url }}">{{ build.commit_info }}</a>
+            <span ng-if="!build.commit_info_url">{{ build.commit_info }}</span>
+          </span>
+          <span ng-if="!build.commit_info">
+            (No commit info available)
+          </span>
         </div>
       </div>
     </div>
@@ -26,6 +32,7 @@
         <div class='build-item-duration'>
           <span ng-if="build.state === 'RUNNING'">Still running</span>
           <span ng-if="build.state !== 'RUNNING'">Took {{ (now - build.start_time)|duration:"millisecond":"year" }}</span>
+        </div>
       </div>
     </div>
   </div>

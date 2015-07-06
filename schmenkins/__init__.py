@@ -59,7 +59,8 @@ class BuildState(State):
     attrs = ['state',
              'start_time',
              'end_time',
-             'revision',
+             'commit_info',
+             'commit_info_url',
              'id']
 
 class SchmenkinsBuild(object):

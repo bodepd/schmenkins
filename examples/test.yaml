@@ -1,5 +1,8 @@
 - job:
     name: jenkins-jobs
+    properties:
+      github: https://github.com/overcastde/jenkins-jobs
+
     scm:
       - git:
           url: https://github.com/overcastde/jenkins-jobs
