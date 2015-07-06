@@ -1,4 +1,5 @@
 import os
+import os.path
 import shutil
 from glob import glob
 
@@ -18,4 +19,12 @@ def publish(schmenkins, job, info, build):
     os.chdir(oldpath)
 
     for f in files:
-        shutil.copy(os.path.join(workspace, f), os.path.join(artifact_dir, f))
+        src_path = os.path.join(workspace, f)
+        dst_path = os.path.join(artifact_dir, f)
+
+        destdir = os.path.dirname(dst_path)
+
+        if not os.path.isdir(destdir):
+            os.makedirs(destdir)
+
+        shutil.copy(src_path, dst_path)
