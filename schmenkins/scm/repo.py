@@ -13,7 +13,7 @@ def poll(schmenkins, job, info):
     checkout(schmenkins, job, info)
 
     cmd = ['repo', 'manifest', '-o', '-', '-r']
-    output = run_cmd(cmd, cwd=job.workspace(), dry_run=schmenkins.dry_run)
+    output = run_cmd(cmd, logger=build.logger, cwd=job.workspace(), dry_run=schmenkins.dry_run)
 
     tree = ElementTree.fromstring(output)
 
@@ -35,6 +35,7 @@ def poll(schmenkins, job, info):
         job.should_run = True
 
 def checkout(schmenkins, job, info, build=None):
+    logger = build and build.logger or LOG
     cmd = ['repo', 'init', '-u', info['manifest-url']]
 
     if 'manifest-file' in info:
@@ -43,9 +44,7 @@ def checkout(schmenkins, job, info, build=None):
     if 'manifest-branch' in info:
         cmd += ['-b', info['manifest-branch']]
 
-    run_cmd(cmd, cwd=job.workspace(), dry_run=schmenkins.dry_run)
+    run_cmd(cmd, cwd=job.workspace(), logger=logger, dry_run=schmenkins.dry_run)
 
     cmd = ['repo', 'sync', '-d', '-c', '-q']
-    run_cmd(cmd, cwd=job.workspace(), dry_run=schmenkins.dry_run)
-
-
+    run_cmd(cmd, cwd=job.workspace(), logger=logger, dry_run=schmenkins.dry_run)
