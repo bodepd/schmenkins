@@ -13,7 +13,7 @@ def poll(schmenkins, job, info):
     checkout(schmenkins, job, info)
 
     cmd = ['repo', 'manifest', '-o', '-', '-r']
-    output = run_cmd(cmd, logger=build.logger, cwd=job.workspace(), dry_run=schmenkins.dry_run)
+    output = run_cmd(cmd, cwd=job.workspace(), dry_run=schmenkins.dry_run)
 
     tree = ElementTree.fromstring(output)
 
