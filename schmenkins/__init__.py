@@ -356,7 +356,7 @@ def generate_summary(basedir):
         except OSError:
             pass
 
-    json.dump(data, os.path.join(basedir, 'summary.json'))
+    json.dump(data, open(os.path.join(basedir, 'summary.json'), 'w'))
 
 
 def migrate(basedir):
