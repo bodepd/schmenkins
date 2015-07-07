@@ -26,12 +26,12 @@
     <div class='row-fluid'>
       <div class='col-md-6'>
         <span ng-if="build.state === 'RUNNING'">Started {{ (now - build.start_time)|duration:"millisecond":"year" }} ago</span>
-        <span ng-if="build.state !== 'RUNNING'">Finished {{ (now - build.start_time)|duration:"millisecond":"year" }} ago</span>
+        <span ng-if="build.state !== 'RUNNING'">Finished {{ (now - build.end_time)|duration:"millisecond":"year" }} ago</span>
       </div>
       <div class='col-md-6'>
         <div class='build-item-duration'>
           <span ng-if="build.state === 'RUNNING'">Still running</span>
-          <span ng-if="build.state !== 'RUNNING'">Took {{ (now - build.start_time)|duration:"millisecond":"year" }}</span>
+          <span ng-if="build.state !== 'RUNNING'">Took {{ (build.end_time - build.start_time)|duration:"millisecond":"year" }}</span>
         </div>
       </div>
     </div>
