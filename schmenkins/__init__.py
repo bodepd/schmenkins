@@ -20,6 +20,7 @@ import formic
 import importlib
 import json
 import logging
+import os
 import os.path
 import re
 import shutil
@@ -41,6 +42,9 @@ BUILD_STATES = ['SUCCESS',
                 'ABORTED',
                 'RUNNING',
                 'SCHEDULED']
+
+class SchmenkinsSummary(State):
+    attrs = ['all_builds']
 
 class SchmenkinsState(State):
     attrs = ['last_run',
@@ -252,6 +256,7 @@ class Schmenkins(object):
         self.ignore_timestamp = ignore_timestamp
         self.dry_run = dry_run
         self.state = SchmenkinsState(path=self.state_file())
+        self.summary = SchmenkinsSummary(path=self.summary_file())
         self.builder = self.get_builder()
         self.builder.load_files(self.cfgfile)
         self.builder.parser.expandYaml(None)
@@ -287,6 +292,14 @@ class Schmenkins(object):
                 shutil.copy2(srcname, dstname)
 
     def add_recent_build(self, build):
+        if not self.summary.all_builds:
+            self.summary.all_builds = {}
+
+        if not build.job.name in self.summary.all_builds:
+            self.summary.all_builds[build.job.name] = {}
+
+        self.summary.all_builds[build.job.name][build.build_number] = build.state
+
         fpath = os.path.join(self.basedir, 'recent_builds.json')
         try:
             with open(fpath, 'r') as fp:
@@ -306,6 +319,10 @@ class Schmenkins(object):
     def state_file(self):
         ensure_dir(self.basedir)
         return os.path.join(self.basedir, 'state.json')
+
+    def summary_file(self):
+        ensure_dir(self.basedir)
+        return os.path.join(self.basedir, 'summary.json')
 
     def jobs_dir(self):
         return os.path.join(self.basedir, 'jobs')
@@ -328,6 +345,22 @@ class Schmenkins(object):
         if force_build or job.should_run:
             build = job.run()
 
+
+def generate_summary(basedir):
+    data = {'all_builds': {}}
+    for job_name in os.listdir(os.path.join(basedir, 'jobs')):
+        data['all_builds'][job_name] = {}
+        for build in os.listdir(os.path.join(basedir, 'jobs', job_name, 'build_records')):
+            data['all_builds'][job_name][build] = json.load(open(os.path.join(basedir, 'jobs', job_name, 'build_records', build, 'state.json'), 'r'))
+
+    json.dump(data, os.path.join(basedir, 'summary.json'))
+
+
+def migrate(basedir):
+    if not os.path.exists(os.path.join(basedir, 'summary.json')):
+        generate_summary(basedir)
+
+
 def main(argv=sys.argv[1:]):
     parser = argparse.ArgumentParser()
 
@@ -342,6 +375,8 @@ def main(argv=sys.argv[1:]):
     parser.add_argument('jobs', nargs='*', help="Only process this/these job(s)")
 
     args = parser.parse_args()
+
+    migrate(args.basedir)
 
     schmenkins = Schmenkins(args.basedir, args.config, args.ignore_timestamp, args.dry_run)
 

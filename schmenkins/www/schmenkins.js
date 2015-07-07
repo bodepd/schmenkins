@@ -22,24 +22,21 @@ schmenkinsApp.config(['$routeProvider',
       });
   }]);
 
-function getSuccesHandler(scope, idx) {
-  return function (data) {
-    for (k in data) {
-      scope.builds[idx][k] = data[k];
-    }
-  }
-}
-
 schmenkinsApp.controller('JobListController', function($scope, $http) {
   $scope.now = Date.now();
   $scope.builds = [];
-  $http.get(baseUrl + '/recent_builds.json?fresh=' + Date.now()).success(function (data) {
-    $scope.builds = data;
-    for (idx in data) {
-      build = data[idx];
-      $http.get(baseUrl + '/jobs/' + build.job + '/build_records/' + build.id + '/state.json?fresh=' + Date.now())
-           .success(getSuccesHandler($scope, idx));
-    }
+  $http.get(baseUrl + '/recent_builds.json?fresh=' + Date.now()).success(function (recent_builds) {
+    $http.get(baseUrl + '/summary.json?fresh=' + Date.now()).success(function (summary) {
+      debugger;
+      for (idx in recent_builds) {
+        build = recent_builds[idx];
+        more_info = summary['all_builds'][build['job']][build['id']];
+        for (k in more_info) {
+          build[k] = more_info[k];
+        }
+      }
+      $scope.builds = recent_builds;
+    });
   });
 });
 
