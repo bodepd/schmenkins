@@ -350,8 +350,11 @@ def generate_summary(basedir):
     data = {'all_builds': {}}
     for job_name in os.listdir(os.path.join(basedir, 'jobs')):
         data['all_builds'][job_name] = {}
-        for build in os.listdir(os.path.join(basedir, 'jobs', job_name, 'build_records')):
-            data['all_builds'][job_name][build] = json.load(open(os.path.join(basedir, 'jobs', job_name, 'build_records', build, 'state.json'), 'r'))
+        try:
+            for build in os.listdir(os.path.join(basedir, 'jobs', job_name, 'build_records')):
+                data['all_builds'][job_name][build] = json.load(open(os.path.join(basedir, 'jobs', job_name, 'build_records', build, 'state.json'), 'r'))
+        except OSError:
+            pass
 
     json.dump(data, os.path.join(basedir, 'summary.json'))
 
