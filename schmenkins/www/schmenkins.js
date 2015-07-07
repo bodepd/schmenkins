@@ -27,7 +27,6 @@ schmenkinsApp.controller('JobListController', function($scope, $http) {
   $scope.builds = [];
   $http.get(baseUrl + '/recent_builds.json?fresh=' + Date.now()).success(function (recent_builds) {
     $http.get(baseUrl + '/summary.json?fresh=' + Date.now()).success(function (summary) {
-      debugger;
       for (idx in recent_builds) {
         build = recent_builds[idx];
         more_info = summary['all_builds'][build['job']][build['id']];
