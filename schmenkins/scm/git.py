@@ -12,7 +12,7 @@ def poll(schmenkins, job, info):
     ref = 'refs/heads/%s' % (info.get('branch', 'master'),)
 
     cmd = ['git', 'ls-remote', info['url']]
-    output = run_cmd(cmd)
+    output = run_cmd(cmd, dry_run=schmenkins.dry_run)
 
     for l in output.split('\n'):
         if not l:
@@ -39,23 +39,33 @@ def checkout(schmenkins, job, info, build):
         shutil.rmtree(job.workspace())
 
     if not os.path.isdir(os.path.join(job.workspace(), '.git')):
-        run_cmd(['git', 'init'], cwd=job.workspace(), dry_run=schmenkins.dry_run)
+        run_cmd(['git', 'init'],
+                 cwd=job.workspace(),
+                 logger=build.logger,
+                 dry_run=schmenkins.dry_run)
+
         run_cmd(['git', 'remote', 'add', remote_name, info['url']],
-                cwd=job.workspace(), dry_run=schmenkins.dry_run)
+                cwd=job.workspace(), logger=build.logger, dry_run=schmenkins.dry_run)
 
     run_cmd(['git', 'remote', 'set-url', remote_name, info['url']],
-             cwd=job.workspace(), dry_run=schmenkins.dry_run)
+             cwd=job.workspace(),
+             logger=build.logger,
+             dry_run=schmenkins.dry_run)
 
     run_cmd(['git', 'fetch', remote_name],
-             cwd=job.workspace(), dry_run=schmenkins.dry_run)
+             cwd=job.workspace(),
+             logger=build.logger,
+             dry_run=schmenkins.dry_run)
 
     rev = build.build_revision or '%s/%s' % (remote_name, info.get('branch', 'master'))
-    run_cmd(['git', 'reset', '--hard', rev], cwd=job.workspace(), dry_run=schmenkins.dry_run)
+    run_cmd(['git', 'reset', '--hard', rev],
+            cwd=job.workspace(), logger=build.logger, dry_run=schmenkins.dry_run)
 
-    commit = run_cmd(['git', 'rev-parse', 'HEAD'], cwd=job.workspace(), dry_run=schmenkins.dry_run).strip()
+    commit = run_cmd(['git', 'rev-parse', 'HEAD'],
+                     cwd=job.workspace(), logger=build.logger, dry_run=schmenkins.dry_run).strip()
 
     build.state.commit_info = run_cmd(['git', 'log', '-1', '--oneline'],
-                                         cwd=job.workspace(), dry_run=schmenkins.dry_run).strip()
+                                      cwd=job.workspace(), logger=build.logger, dry_run=schmenkins.dry_run).strip()
 
     if job._job_dict.get('properties', {}).get('github', False):
         github_url = job._job_dict['properties']['github']
