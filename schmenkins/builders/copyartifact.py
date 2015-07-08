@@ -2,21 +2,17 @@ import formic
 import os.path
 import shutil
 
-from schmenkins import SchmenkinsJob
 from schmenkins import SchmenkinsBuild
 from schmenkins.exceptions import UnsupportedConfig
 from schmenkins.utils import itpl, ensure_dir
 
 
 def run(schmenkins, job, info, build):
-    source_job = SchmenkinsJob(schmenkins,
-                               schmenkins.jobs[itpl(info['project'],
-                                                    build.parameters())])
+    source_job = schmenkins.get_job(itpl(info['build-number']))
     if info['which-build'] == 'specific-build':
         source_build = SchmenkinsBuild(source_job,
                                        build_number=itpl(info['build-number'],
                                                          build.parameters()))
-
     else:
         raise UnsupportedConfig(info['which-build'])
 

@@ -1,5 +1,3 @@
-from schmenkins import SchmenkinsJob
-
 from schmenkins.exceptions import UnsupportedConfig
 from schmenkins.utils import itpl
 
@@ -13,6 +11,5 @@ def publish(schmenkins, job, info, build):
     else:
         raise UnsupportedConfig('%s' % (info['condition'],))
 
-    trigger_job = SchmenkinsJob(schmenkins,
-                                schmenkins.jobs[info['project']])
+    trigger_job = schmenkins.get_job(info['project'])
     triggered_build = trigger_job.run()

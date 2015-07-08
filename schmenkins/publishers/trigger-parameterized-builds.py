@@ -1,5 +1,3 @@
-from schmenkins import SchmenkinsJob
-
 from schmenkins.exceptions import UnsupportedConfig
 from schmenkins.utils import itpl
 
@@ -26,7 +24,6 @@ def _publish(schmenkins, job, info, build):
          k, v = l.split('=', 1)
          parameters[k] = itpl(v, build.parameters())
 
-    trigger_job = SchmenkinsJob(schmenkins,
-                                schmenkins.jobs[info['project']])
+    trigger_job = schmenkins.get_job(info['project'])
     triggered_build = trigger_job.run(parameters=parameters)
 

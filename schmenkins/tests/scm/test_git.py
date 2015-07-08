@@ -9,6 +9,7 @@ class GitTests(unittest.TestCase):
         self.schmenkins.dry_run = mock.sentinel.DRY_RUN
         self.job = mock.MagicMock()
         self.build = mock.MagicMock()
+        self.build.logger = mock.sentinel.logger
         self.job.name = 'testjobname'
         self.job.build_revision = None
         self.job.should_run = False
@@ -38,7 +39,7 @@ class GitTests(unittest.TestCase):
         if branch:
             info['branch'] = branch
 
-        def fake_run_cmd(cmd):
+        def fake_run_cmd(cmd, **kwargs):
             if cmd[0] == 'git':
                 if cmd[1] == 'ls-remote':
                     self.assertEquals(cmd[2], url)
@@ -48,7 +49,7 @@ class GitTests(unittest.TestCase):
         run_cmd.side_effect = fake_run_cmd
 
         schmenkins.scm.git.poll(self.schmenkins, self.job, info)
-        run_cmd.assert_any_call(['git', 'ls-remote', url])
+        run_cmd.assert_any_call(['git', 'ls-remote', url], dry_run=self.schmenkins.dry_run)
         self.assertEquals(self.job.build_revision, expected_revision)
         self.assertEquals(self.job.should_run, should_run)
 
@@ -66,22 +67,25 @@ class GitTests(unittest.TestCase):
         def fake_run_cmd(cmd, **kwargs):
             if cmd == ['git', 'rev-parse', 'HEAD']:
                 return 'parsed_sha'
+            elif cmd == ['git', 'log', '-1', '--oneline']:
+                return 'deadbeef Some changes\n'
 
         run_cmd.side_effect = fake_run_cmd
 
         schmenkins.scm.git.checkout(self.schmenkins, self.job, info, self.build)
         rmtree.assert_called_with('workspacedir')
 
+        print run_cmd.call_args_list
         run_cmd.assert_any_call(['git', 'init'], cwd='workspacedir',
-                                dry_run=mock.sentinel.DRY_RUN)
+                                logger=mock.sentinel.logger, dry_run=mock.sentinel.DRY_RUN)
         run_cmd.assert_any_call(['git', 'remote', 'add', 'origin', url],
-                                cwd='workspacedir', dry_run=mock.sentinel.DRY_RUN)
+                                logger=mock.sentinel.logger, cwd='workspacedir', dry_run=mock.sentinel.DRY_RUN)
         run_cmd.assert_any_call(['git', 'remote', 'set-url', 'origin', url],
-                                cwd='workspacedir', dry_run=mock.sentinel.DRY_RUN)
+                                logger=mock.sentinel.logger, cwd='workspacedir', dry_run=mock.sentinel.DRY_RUN)
         run_cmd.assert_any_call(['git', 'fetch', 'origin'],
-                                cwd='workspacedir', dry_run=mock.sentinel.DRY_RUN)
+                                logger=mock.sentinel.logger, cwd='workspacedir', dry_run=mock.sentinel.DRY_RUN)
         run_cmd.assert_any_call(['git', 'reset', '--hard', 'thissha'],
-                                cwd='workspacedir', dry_run=mock.sentinel.DRY_RUN)
+                                logger=mock.sentinel.logger, cwd='workspacedir', dry_run=mock.sentinel.DRY_RUN)
         self.assertEquals(self.build._parameters['GIT_COMMIT'], 'parsed_sha')
 
     @mock.patch('shutil.rmtree')
@@ -99,6 +103,8 @@ class GitTests(unittest.TestCase):
         def fake_run_cmd(cmd, **kwargs):
             if cmd == ['git', 'rev-parse', 'HEAD']:
                 return 'parsed_sha'
+            elif cmd == ['git', 'log', '-1', '--oneline']:
+                return 'deadbeef Some changes\n'
 
         run_cmd.side_effect = fake_run_cmd
 

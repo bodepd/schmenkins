@@ -122,8 +122,8 @@ class SchmenkinsBuild(object):
 
     def run(self):
         self.get_next_build_number()
-        logging.info('Assigned build number %d to job %s' % (self.build_number,
-                                                             self.job))
+        LOG.info('Assigned build number %d to job %s' % (self.build_number,
+                                                         self.job))
         self.state.id = self.build_number
         self.job.schmenkins.add_recent_build(self)
 
@@ -265,6 +265,7 @@ class Schmenkins(object):
             self.state.jobs = {}
 
         self.jobs = {job['name']: job for job in self.builder.parser.jobs}
+        self._jobs = {}
 
         if ignore_timestamp or self.state.last_run is None:
             self.last_run = 0
@@ -327,8 +328,13 @@ class Schmenkins(object):
     def jobs_dir(self):
         return os.path.join(self.basedir, 'jobs')
 
-    def handle_job(self, job_dict, force_build=False):
-        job = SchmenkinsJob(self, job_dict)
+    def get_job(self, job_name):
+        if job_name not in self._jobs:
+            self._jobs[job_name] = SchmenkinsJob(self, self.jobs[job_name])
+        return self._jobs[job_name]
+
+    def handle_job(self, job_name, force_build=False):
+        job = self.get_job(job_name)
         self.state.jobs[job.name] = job.state
 
         logging.info('Processing triggers for %s' % (job,))
@@ -395,7 +401,7 @@ def main(argv=sys.argv[1:]):
             continue
 
         logging.info('Handling job: %s' % (job,))
-        schmenkins.handle_job(schmenkins.jobs[job], force_build=args.force_build)
+        schmenkins.handle_job(job, force_build=args.force_build)
 
     schmenkins.state.last_run = time.mktime(schmenkins.now.timetuple())
 

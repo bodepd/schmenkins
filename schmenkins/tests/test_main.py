@@ -69,24 +69,25 @@ class TestSchmenkins(tests.SchmenkinsTest):
     @mock.patch('schmenkins.SchmenkinsJob')
     def test_handle_job_basic(self, SchmenkinsJob):
         s = schmenkins.Schmenkins(self.statedir, self.cfgfile)
+        with mock.patch.object(s, 'get_job') as get_job:
+            job_name = 'job_name'
 
-        job_dict = {}
+            job = SchmenkinsJob.return_value
+            s.handle_job(job_name)
 
-        job = SchmenkinsJob.return_value
-        s.handle_job(job_dict)
-
-        SchmenkinsJob.assert_called_with(s, job_dict)
+            get_job.assert_called_with(job_name)
 
     @mock.patch('schmenkins.SchmenkinsJob')
     def test_handle_job_force_build_skips_triggers_and_polling(self, SchmenkinsJob):
         s = schmenkins.Schmenkins(self.statedir, self.cfgfile)
 
-        job_dict = {}
+        s.jobs = {'job_name': {}}
+        job_name = 'job_name'
 
         job = SchmenkinsJob.return_value
         job.should_poll = False
         job.should_run = False
-        s.handle_job(job_dict, force_build=True)
+        s.handle_job(job_name, force_build=True)
 
         job.process_triggers.assert_not_called()
         job.poll.assert_not_called()
@@ -96,13 +97,14 @@ class TestSchmenkins(tests.SchmenkinsTest):
     def test_handle_job_triggers_say_should_build_skips_poll(self, SchmenkinsJob):
         s = schmenkins.Schmenkins(self.statedir, self.cfgfile)
 
-        job_dict = {}
+        s.jobs = {'job_name': {}}
+        job_name = 'job_name'
 
         job = SchmenkinsJob.return_value
         job.should_poll = False
         job.should_run = False
         job.process_triggers.side_effect = lambda:[setattr(job, attr, True) for attr in ['should_poll', 'should_run']]
-        s.handle_job(job_dict)
+        s.handle_job(job_name)
 
         job.process_triggers.assert_called_with()
         job.poll.assert_not_called()
@@ -112,13 +114,14 @@ class TestSchmenkins(tests.SchmenkinsTest):
     def test_handle_job_triggers_say_should_poll_no_changes(self, SchmenkinsJob):
         s = schmenkins.Schmenkins(self.statedir, self.cfgfile)
 
-        job_dict = {}
+        s.jobs = {'job_name': {}}
+        job_name = 'job_name'
 
         job = SchmenkinsJob.return_value
         job.should_poll = False
         job.should_run = False
         job.process_triggers.side_effect = lambda:setattr(job, 'should_poll', True)
-        s.handle_job(job_dict)
+        s.handle_job(job_name)
 
         job.process_triggers.assert_called_with()
         job.poll.assert_called_with()
@@ -128,7 +131,8 @@ class TestSchmenkins(tests.SchmenkinsTest):
     def test_handle_job_triggers_say_should_poll_with_changes(self, SchmenkinsJob):
         s = schmenkins.Schmenkins(self.statedir, self.cfgfile)
 
-        job_dict = {}
+        s.jobs = {'job_name': {}}
+        job_name = 'job_name'
 
         job = SchmenkinsJob.return_value
         job.should_poll = False
@@ -136,7 +140,7 @@ class TestSchmenkins(tests.SchmenkinsTest):
 
         job.process_triggers.side_effect = lambda:setattr(job, 'should_poll', True)
         job.poll.side_effect = lambda:setattr(job, 'should_run', True)
-        s.handle_job(job_dict)
+        s.handle_job(job_name)
 
         job.process_triggers.assert_called_with()
         job.poll.assert_called_with()
