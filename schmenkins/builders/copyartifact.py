@@ -8,7 +8,7 @@ from schmenkins.utils import itpl, ensure_dir
 
 
 def run(schmenkins, job, info, build):
-    source_job = schmenkins.get_job(itpl(info['build-number']))
+    source_job = schmenkins.get_job(itpl(info['project'], build.parameters()))
     if info['which-build'] == 'specific-build':
         source_build = SchmenkinsBuild(source_job,
                                        build_number=itpl(info['build-number'],
