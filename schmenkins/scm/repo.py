@@ -5,6 +5,7 @@ import shutil
 from xml.etree import ElementTree
 
 from schmenkins.utils import run_cmd
+from schmenkins.exceptions import SchmenkinsCommandFailed
 
 LOG = logging.getLogger(__name__)
 
@@ -46,5 +47,13 @@ def checkout(schmenkins, job, info, build=None):
 
     run_cmd(cmd, cwd=job.workspace(), logger=logger, dry_run=schmenkins.dry_run)
 
-    cmd = ['repo', 'sync', '-d', '-c', '-q']
-    run_cmd(cmd, cwd=job.workspace(), logger=logger, dry_run=schmenkins.dry_run)
+    def do_sync():
+        cmd = ['repo', 'sync', '-d', '-c', '-q']
+        run_cmd(cmd, cwd=job.workspace(), logger=logger, dry_run=schmenkins.dry_run)
+
+    try:
+        do_sync()
+    except SchmenkinsCommandFailed:
+        cmd = ['repo', 'forall', '-c', 'git reset --hard']
+        run_cmd(cmd, cwd=job.workspace(), logger=logger, dry_run=schmenkins.dry_run)
+        do_sync()
