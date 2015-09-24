@@ -191,13 +191,15 @@ class SchmenkinsJob(object):
         return os.path.join(self.job_dir(), 'build_records')
 
     def process_triggers(self):
+        events = []
         for trigger in self._job_dict.get('triggers', []):
             plugin_name = trigger.keys()[0]
             try:
                 plugin = importlib.import_module('schmenkins.triggers.%s' % (plugin_name,))
             except ImportError:
                 raise exceptions.UnsupportedConfig('Trigger Plugin: %s' % (plugin_name,))
-            plugin.run(self.schmenkins, self, trigger[plugin_name])
+            events += plugin.run(self.schmenkins, self, trigger[plugin_name])
+        return events
 
 
     def poll(self):
@@ -210,7 +212,8 @@ class SchmenkinsJob(object):
             plugin.poll(self.schmenkins, self, scm[plugin_name])
 
     def run(self, parameters=None):
-        build = SchmenkinsBuild(self, self.build_revision, parameters)
+        params = {} if parameters is None else parameters
+        build = SchmenkinsBuild(self, self.build_revision, params)
 
         self.state.running = build.state
         build.run()
@@ -333,23 +336,37 @@ class Schmenkins(object):
             self._jobs[job_name] = SchmenkinsJob(self, self.jobs[job_name])
         return self._jobs[job_name]
 
+    # this is the code that does all of the processing.
     def handle_job(self, job_name, force_build=False):
         job = self.get_job(job_name)
         self.state.jobs[job.name] = job.state
+        events = None
 
         logging.info('Processing triggers for %s' % (job,))
+        # see if the triggers result in any created events
         if not force_build:
-            job.process_triggers()
+            # keep track of the events that might need to become builds
+            # NOTE: this has side effects and modifies the state of the job
+            # object
+            events = job.process_triggers()
 
         logging.info('should_poll: %r, should_run: %r, force_build: %r' %
                      (job.should_poll, job.should_run, force_build))
+        # poll if we got a trigger that we should poll
         if job.should_poll and not job.should_run and not force_build:
             job.poll()
 
         logging.info('should_run: %r, force_build: %r' %
                      (job.should_run, force_build))
-        if force_build or job.should_run:
-            build = job.run()
+        if force_build or job.should_run or events is not None:
+            if events is not None:
+                for event in events:
+                  if event.get('mergeable', False):
+                      build = job.run(event['build_params'])
+                  else:
+                      print "Found an unmergable build"
+            else:
+                build = job.run()
 
 
 def generate_summary(basedir):
