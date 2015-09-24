@@ -4,6 +4,7 @@ import re
 import shutil
 
 from schmenkins.utils import run_cmd
+from schmenkins.utils import itpl
 
 LOG = logging.getLogger(__name__)
 
@@ -32,8 +33,17 @@ def poll(schmenkins, job, info):
     elif job.state.last_seen_revision != job.build_revision:
         job.should_run = True
 
+def interpolate_info(info, build_params):
+    new_hash = {}
+    for k, v in info.iteritems():
+        new_hash[k] = itpl(v, build_params)
+    return new_hash
+
 def checkout(schmenkins, job, info, build):
+    # TODO need to support refspec
+    # need to support setting branch...
     remote_name = 'origin' # I believe this can be overriden somehow
+    info = interpolate_info(info, build.parameters())
 
     if info.get('wipe-workspace', True):
         shutil.rmtree(job.workspace())
@@ -51,13 +61,15 @@ def checkout(schmenkins, job, info, build):
              cwd=job.workspace(),
              logger=build.logger,
              dry_run=schmenkins.dry_run)
-
-    run_cmd(['git', 'fetch', remote_name],
+    fetch_array = ['git', 'fetch', remote_name]
+    if info['refspec']:
+        fetch_array.append(info['refspec'])
+    run_cmd(fetch_array,
              cwd=job.workspace(),
              logger=build.logger,
              dry_run=schmenkins.dry_run)
 
-    rev = build.build_revision or '%s/%s' % (remote_name, info.get('branch', 'master'))
+    rev = build.build_revision or info.get('branch', 'master')
     run_cmd(['git', 'reset', '--hard', rev],
             cwd=job.workspace(), logger=build.logger, dry_run=schmenkins.dry_run)
 
