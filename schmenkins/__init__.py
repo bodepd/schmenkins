@@ -57,7 +57,8 @@ class JobState(State):
              'next_build_number',
              'last_build',
              'running',
-             'state']
+             'state',
+             'triggers_completed_time']
 
 class BuildState(State):
     attrs = ['state',
@@ -365,6 +366,7 @@ class Schmenkins(object):
                       build = job.run(event['build_params'])
                   else:
                       print "Found an unmergable build"
+                  job.state.triggers_completed_time = event['time']
             else:
                 build = job.run()
 

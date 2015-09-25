@@ -5,6 +5,7 @@ import httplib
 import json
 from croniter import croniter
 import pprint
+from dateutil import parser
 
 github_get_lookuphash = {}
 
@@ -18,34 +19,40 @@ def run(schmenkins, job, info):
     """
     cron = info['cron'].replace('H/', '*/')
     next_poll = croniter(cron, schmenkins.base_timestamp).get_next(datetime.datetime)
-    if True:
-    #if next_poll < schmenkins.now:
+    if next_poll < schmenkins.now:
         scm = job._job_dict['scm']
         if len(scm) != 1:
             print "Expecting 1 scm entry, found %s, this plugin doesn't know what to do with that" % len(scm)
         logging.debug('%s should have run by: %s, polling github repo now' % (job.name, next_poll))
         repo_url = scm[0]['git']['url']
-        return poll(repo_url, info)
+        return poll(repo_url, info, convert_time(job.state.triggers_completed_time))
     else:
+        return []
+
+def convert_time(time):
+    """
+    Convert time between the two formats that github uses
+    """
+    if time is None:
         return None
+    return parser.parse(time).strftime('%a, %d %b %Y %H:%M:%S %Z')
 
 # takes the specified rules and determines if a job should be triggered.
 # needs to pass in the info for that event so that we know what to do with it.
-def poll(repo_url, info):
+def poll(repo_url, info, time_since):
     print get_github_data('/rate_limit')
     warn_unsupported_args(info)
     repo_a = get_repo_name_and_org(repo_url)
     data = get_events(
         repo_a[0],
         repo_a[1],
-        get_last_poll_time()
+        time_since
     )
     data_to_keep = []
     if data is not None:
         for i in data:
-          #print "\n\n\n\n"
-          #  pp = pprint.PrettyPrinter(indent=1)
-          #  pp.pprint(i)
+            #pp = pprint.PrettyPrinter(indent=1)
+            #pp.pprint(i)
             if keep_event(
                 i,
                 info.get('admin-list', []) + info.get('white-list', []),
@@ -74,7 +81,6 @@ def convert_events_to_build_params(events):
                 pull_request_user,
                 pr
             )
-            print env
         elif event['type'] == 'PullRequestEvent':
             user = get_github_data(event['actor']['url'])
             pr = get_github_data(event['payload']['pull_request']['url'])
@@ -108,12 +114,14 @@ def convert_events_to_build_params(events):
         else:
             print "Unexpected event type %s" % event['type']
         build_hash = {'build_params': env}
+        build_hash['id'] = event['id']
+        build_hash['time'] = event['created_at']
         if env['merge_commit_sha1'] is None:
             build_hash['mergeable'] = False
         else:
             build_hash['mergeable'] = True
         build_params.append(build_hash)
-    return build_params
+    return list(reversed(build_params))
 
 def env_from_github_objects(
     user,
@@ -143,9 +151,6 @@ def env_from_github_objects(
     env['ghprbPullDescription'] = "GitHub pull request #%s of commit %s, %s." % (pr['number'], pr['merge_commit_sha'], merge_message)
     return env
 
-def get_last_poll_time():
-    return None
-
 def get_github_data(
     url,
     time_since = None,
@@ -155,10 +160,16 @@ def get_github_data(
     else:
         print url
         conn = httplib.HTTPSConnection('api.github.com')
-        conn.request('GET', url, {}, {'User-Agent': 'Schmenkins'})
+        req_header = {'User-Agent': 'Schmenkins'}
+        if time_since is not None:
+            req_header['If-Modified-Since'] = time_since
+        conn.request('GET', url, {}, req_header)
         # embed time_since into request HEADER
         res = conn.getresponse()
-        if res.status != 200:
+        if res.status == 304:
+            print "Not modified response"
+            return []
+        elif res.status != 200:
             print "Got an error from github api call: %s:%s" % (res.status, res.reason)
             return None
         data = json.loads(res.read())
