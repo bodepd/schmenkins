@@ -31,7 +31,9 @@ def run(schmenkins, job, info):
 
 def convert_time(time):
     """
-    Convert time between the two formats that github uses
+    Convert time between the two formats that github uses.
+    Github uses one time format for it's objects, and another
+    to be able to set the last modified header.
     """
     if time is None:
         return None
@@ -40,7 +42,7 @@ def convert_time(time):
 # takes the specified rules and determines if a job should be triggered.
 # needs to pass in the info for that event so that we know what to do with it.
 def poll(repo_url, info, time_since):
-    print get_github_data('/rate_limit')
+    #print get_github_data('/rate_limit')
     warn_unsupported_args(info)
     repo_a = get_repo_name_and_org(repo_url)
     data = get_events(
@@ -158,7 +160,6 @@ def get_github_data(
     if github_get_lookuphash.get(url, None) is not None:
         return github_get_lookuphash[url]
     else:
-        print url
         conn = httplib.HTTPSConnection('api.github.com')
         req_header = {'User-Agent': 'Schmenkins'}
         if time_since is not None:
@@ -199,9 +200,6 @@ def keep_event(
     """""
     Stores the rules that we use to determine if a github event is a keeper
     """""
-    #if event['type'] not in types:
-    #    return False
-    print event['type']
     if event['actor']['login'] not in users:
         # don't return an event if the users aren't authorized
         return False

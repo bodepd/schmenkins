@@ -360,15 +360,15 @@ class Schmenkins(object):
         logging.info('should_run: %r, force_build: %r' %
                      (job.should_run, force_build))
         if force_build or job.should_run or events is not None:
-            if events is not None:
+            if events is None or all(v is None for v in events):
+                build = job.run()
+            else:
                 for event in events:
-                  if event.get('mergeable', False):
+                  if event.get('mergeable', True):
                       build = job.run(event['build_params'])
                   else:
                       print "Found an unmergable build"
                   job.state.triggers_completed_time = event['time']
-            else:
-                build = job.run()
 
 
 def generate_summary(basedir):
